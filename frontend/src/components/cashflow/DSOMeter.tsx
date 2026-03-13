@@ -11,16 +11,22 @@ export interface DSOData {
 
 export interface DSOMeterProps {
   region?: string;
+  periodStart?: string;
+  periodEnd?: string;
 }
 
-export function DSOMeter({ region }: DSOMeterProps) {
+export function DSOMeter({ region, periodStart, periodEnd }: DSOMeterProps) {
   const [data, setData] = useState<DSOData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    setLoading(true);
+    setError(null);
     const params = new URLSearchParams();
     if (region) params.set("region", region);
+    if (periodStart) params.set("period_start", periodStart);
+    if (periodEnd) params.set("period_end", periodEnd);
 
     fetch(`/api/cashflow/dso?${params}`)
       .then((res) => {
@@ -39,7 +45,7 @@ export function DSOMeter({ region }: DSOMeterProps) {
         setError(err instanceof Error ? err.message : "Failed to load DSO");
       })
       .finally(() => setLoading(false));
-  }, [region]);
+  }, [region, periodStart, periodEnd]);
 
   if (error) {
     return (

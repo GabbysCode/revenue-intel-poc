@@ -80,11 +80,10 @@ export function Sidebar() {
         `}
       >
         {/* Logo */}
-        <div className="flex items-center gap-2 px-6 py-5 border-b border-[#2a2a2a]">
-          <div className="w-8 h-8 rounded-lg bg-[#4ade80]/20 flex items-center justify-center">
-            <span className="text-[#4ade80] font-bold text-sm">R</span>
-          </div>
-          <span className="font-semibold text-lg text-[#e5e5e5]">RevIntel</span>
+        <div className="flex items-center gap-3 px-5 py-4 border-b border-[#2a2a2a]">
+          <img src="/kpmg-logo.png" alt="KPMG" className="h-7 w-auto" />
+          <div className="h-5 w-px bg-[#2a2a2a]" />
+          <span className="font-semibold text-sm text-[#e5e5e5]">Revenue Intel</span>
         </div>
 
         {/* Nav groups */}
@@ -106,13 +105,13 @@ export function Sidebar() {
                           flex items-center gap-3 px-3 py-2.5 rounded-lg
                           transition-colors duration-150 relative
                           ${isActive
-                            ? "bg-[#222]/80 text-[#4ade80]"
+                            ? "bg-[#222]/80 text-[#81d4e2]"
                             : "text-[#a3a3a3] hover:bg-[#222] hover:text-[#e5e5e5]"
                           }
                         `}
                       >
                         {isActive && (
-                          <span className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-6 bg-[#4ade80] rounded-r" />
+                          <span className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-6 bg-[#81d4e2] rounded-r" />
                         )}
                         <span className="flex-shrink-0 text-[#888888]">
                           {ICONS[item.icon] ?? null}
@@ -130,7 +129,7 @@ export function Sidebar() {
         {/* User profile */}
         <div className="p-4 border-t border-[#2a2a2a]">
           <div className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-[#222] cursor-pointer transition-colors">
-            <div className="w-9 h-9 rounded-full bg-[#2a2a2a] flex items-center justify-center text-sm font-medium text-[#4ade80]">
+            <div className="w-9 h-9 rounded-full bg-[#2a2a2a] flex items-center justify-center text-sm font-medium text-[#81d4e2]">
               JD
             </div>
             <div className="flex-1 min-w-0">

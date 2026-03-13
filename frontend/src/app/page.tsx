@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
-import { Header } from "@/components/layout/Header";
+import { useState, useEffect } from "react";
+import { Header, DATE_PRESETS, type DateRange } from "@/components/layout/Header";
 import { KPICardGrid } from "@/components/dashboard/KPICardGrid";
 import { RevenueTrendChart } from "@/components/dashboard/RevenueTrendChart";
 import { AttributionPieChart } from "@/components/dashboard/AttributionPieChart";
@@ -11,6 +11,8 @@ import { LiveFeedPanel } from "@/components/live/LiveFeedPanel";
 export default function DashboardPage() {
   const [showSummary, setShowSummary] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [region, setRegion] = useState<string | undefined>(undefined);
+  const [dateRange, setDateRange] = useState<DateRange>(DATE_PRESETS[0]);
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -28,7 +30,10 @@ export default function DashboardPage() {
           { label: "Revenue Attribution", value: "revenue" },
           { label: "Billings & Collections", value: "billings" },
         ]}
-        dateRange="Jan 01, 2025 - Dec 31, 2025"
+        region={region ?? ""}
+        onRegionChange={setRegion}
+        dateRange={dateRange}
+        onDateRangeChange={setDateRange}
       />
 
       <div className="p-6 space-y-6">
@@ -42,23 +47,24 @@ export default function DashboardPage() {
           </button>
         </div>
 
-        <KPICardGrid key={`kpi-${refreshKey}`} />
+        <KPICardGrid key={`kpi-${refreshKey}-${region}-${dateRange.start}`} region={region} periodStart={dateRange.start} periodEnd={dateRange.end} />
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <div className="lg:col-span-2">
-            <RevenueTrendChart />
+            <RevenueTrendChart region={region} />
           </div>
           <LiveFeedPanel />
         </div>
 
-        <AttributionPieChart />
+        <AttributionPieChart region={region} periodStart={dateRange.start} periodEnd={dateRange.end} />
       </div>
 
       <ExecSummaryModal
         isOpen={showSummary}
         onClose={() => setShowSummary(false)}
-        periodStart="2025-01-01"
-        periodEnd="2025-12-31"
+        periodStart={dateRange.start}
+        periodEnd={dateRange.end}
+        region={region}
       />
     </>
   );

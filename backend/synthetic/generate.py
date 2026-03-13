@@ -89,7 +89,11 @@ def generate_revenue(clients_df, start_date="2023-01-01", end_date="2025-12-31")
 
                 recognition_lag = np.random.uniform(0.7, 1.0)
                 billing_lag = np.random.uniform(0.6, 0.95)
-                collection_rate = np.random.uniform(0.5, 0.9)
+
+                quarter = (date.month - 1) // 3
+                year_drift = (date.year - 2023) * 0.04
+                q_center = [0.82, 0.72, 0.60, 0.50][quarter] - year_drift
+                collection_rate = np.clip(np.random.normal(q_center, 0.08), 0.25, 0.95)
                 margin = np.random.uniform(0.15, 0.45)
 
                 rows.append({
@@ -178,19 +182,74 @@ def generate_dq_audit_log():
 
 
 def generate_revenue_versions(revenue_df):
-    """Generate multiple 'versions' of fact_revenue for time-travel simulation."""
+    """Generate multiple 'versions' of fact_revenue for time-travel simulation.
+
+    Each version represents a realistic business event:
+      v1 - Q2 Close: original baseline
+      v2 - Q3 Restatement: audit corrections, consulting contract loss, EMEA ramp
+      v3 - Year-End Adjustment: APAC expansion, tech boom, collection write-offs
+    """
     versions = []
-    version_dates = ["2025-06-01", "2025-09-01", "2025-12-01"]
-    for i, vdate in enumerate(version_dates):
+
+    VERSION_SCENARIOS = [
+        {
+            "version_id": 1,
+            "version_date": "2025-06-01",
+            "label": "Q2 Close",
+            "region_mult": {},
+            "sl_mult": {},
+            "noise_std": 0.0,
+        },
+        {
+            "version_id": 2,
+            "version_date": "2025-09-01",
+            "label": "Q3 Restatement",
+            "region_mult": {"R001": 0.92, "R002": 1.14, "R003": 1.06, "R004": 1.03},
+            "sl_mult": {"SL01": 1.12, "SL04": 0.82, "SL05": 1.08, "SL06": 0.95},
+            "noise_std": 0.05,
+            "collection_adj": 1.08,
+            "margin_shift": 1.5,
+        },
+        {
+            "version_id": 3,
+            "version_date": "2025-12-01",
+            "label": "Year-End Adjustment",
+            "region_mult": {"R001": 0.97, "R002": 1.20, "R003": 1.25, "R004": 1.10},
+            "sl_mult": {"SL01": 1.05, "SL03": 1.15, "SL04": 0.78, "SL06": 1.30},
+            "noise_std": 0.06,
+            "collection_adj": 0.90,
+            "margin_shift": -2.0,
+        },
+    ]
+
+    for scenario in VERSION_SCENARIOS:
         version = revenue_df.copy()
-        if i > 0:
-            adjustment = np.random.normal(1.0, 0.03, size=len(version))
-            version["booked_revenue"] = (version["booked_revenue"] * adjustment).round(2)
-            version["recognized_revenue"] = (version["recognized_revenue"] * adjustment).round(2)
-            version["billed_amount"] = (version["billed_amount"] * adjustment).round(2)
-        version["version_id"] = i + 1
-        version["version_date"] = vdate
+        vid = scenario["version_id"]
+
+        if vid > 1:
+            region_mult = scenario["region_mult"]
+            sl_mult = scenario["sl_mult"]
+            noise_std = scenario["noise_std"]
+            coll_adj = scenario.get("collection_adj", 1.0)
+            margin_shift = scenario.get("margin_shift", 0.0)
+
+            r_factors = version["region_id"].map(region_mult).fillna(1.0)
+            s_factors = version["service_line_id"].map(sl_mult).fillna(1.0)
+            noise = np.random.normal(1.0, noise_std, size=len(version))
+            combined = r_factors * s_factors * noise
+
+            version["booked_revenue"] = (version["booked_revenue"] * combined).round(2)
+            version["recognized_revenue"] = (version["recognized_revenue"] * combined).round(2)
+            version["billed_amount"] = (version["billed_amount"] * combined).round(2)
+            version["collected_amount"] = (version["collected_amount"] * combined * coll_adj).round(2)
+            version["ar_balance"] = (version["billed_amount"] - version["collected_amount"]).clip(lower=0).round(2)
+            version["wip_balance"] = (version["booked_revenue"] - version["billed_amount"]).clip(lower=0).round(2)
+            version["margin_pct"] = (version["margin_pct"] + margin_shift).clip(5, 55).round(1)
+
+        version["version_id"] = vid
+        version["version_date"] = scenario["version_date"]
         versions.append(version)
+
     return pd.concat(versions, ignore_index=True)
 
 

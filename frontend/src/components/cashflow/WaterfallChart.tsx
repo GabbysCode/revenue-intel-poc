@@ -46,8 +46,8 @@ export function WaterfallChart({ periodStart, periodEnd, region }: WaterfallChar
 
   useEffect(() => {
     const params = new URLSearchParams();
-    if (periodStart) params.set("periodStart", periodStart);
-    if (periodEnd) params.set("periodEnd", periodEnd);
+    if (periodStart) params.set("period_start", periodStart);
+    if (periodEnd) params.set("period_end", periodEnd);
     if (region) params.set("region", region);
 
     fetch(`/api/cashflow/waterfall?${params}`)

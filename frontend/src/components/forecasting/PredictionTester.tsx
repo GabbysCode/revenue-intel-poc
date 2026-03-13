@@ -3,13 +3,23 @@
 import React, { useState } from "react";
 
 const MODELS = ["prophet", "xgboost", "hybrid"] as const;
-const REGIONS = ["All", "Americas", "EMEA", "APAC", "UK"];
+const REGION_OPTIONS = [
+  { label: "All", id: "" },
+  { label: "Americas", id: "R001" },
+  { label: "EMEA", id: "R002" },
+  { label: "APAC", id: "R003" },
+  { label: "UK", id: "R004" },
+];
 
 interface ForecastResult {
   month?: string;
   forecast?: number;
   lower80?: number;
   upper80?: number;
+}
+
+export interface PredictionTesterProps {
+  onForecastRun?: (params: { horizon: number; model: string; region?: string }) => void;
 }
 
 function formatCompactCurrency(value: number): string {
@@ -19,10 +29,10 @@ function formatCompactCurrency(value: number): string {
   return `$${value}`;
 }
 
-export function PredictionTester() {
+export function PredictionTester({ onForecastRun }: PredictionTesterProps) {
   const [horizon, setHorizon] = useState(6);
   const [model, setModel] = useState<"prophet" | "xgboost" | "hybrid">("hybrid");
-  const [region, setRegion] = useState("All");
+  const [regionId, setRegionId] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [results, setResults] = useState<ForecastResult[] | null>(null);
@@ -32,7 +42,7 @@ export function PredictionTester() {
     setError(null);
     setResults(null);
     const params = new URLSearchParams({ horizon: String(horizon), model });
-    if (region && region !== "All") params.set("region", region);
+    if (regionId) params.set("region", regionId);
 
     fetch(`/api/forecasting/predict?${params}`)
       .then((res) => {
@@ -49,6 +59,7 @@ export function PredictionTester() {
             upper80: p.upper_80,
           }))
         );
+        onForecastRun?.({ horizon, model, region: regionId || undefined });
       })
       .catch((err) => {
         setError(err instanceof Error ? err.message : "Failed to run prediction");
@@ -100,13 +111,13 @@ export function PredictionTester() {
         <div>
           <label className="mb-2 block text-sm font-medium text-[#9ca3af]">Region</label>
           <select
-            value={region}
-            onChange={(e) => setRegion(e.target.value)}
+            value={regionId}
+            onChange={(e) => setRegionId(e.target.value)}
             className="w-full rounded-lg border border-[#2a2a2a] bg-[#0f0f0f] px-3 py-2 text-sm text-[#e5e5e5] focus:border-[#4ade80] focus:outline-none focus:ring-1 focus:ring-[#4ade80]"
           >
-            {REGIONS.map((r) => (
-              <option key={r} value={r}>
-                {r}
+            {REGION_OPTIONS.map((r) => (
+              <option key={r.id || "all"} value={r.id}>
+                {r.label}
               </option>
             ))}
           </select>

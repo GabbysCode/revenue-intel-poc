@@ -59,20 +59,40 @@ async def _poll_message(client: httpx.AsyncClient, conversation_id: str, message
             attachments = msg.get("attachments", [])
             result = {"status": "completed", "text": "", "sql": "", "data": None}
 
+            text_parts = []
             for att in attachments:
-                if att.get("type") == "TEXT":
-                    result["text"] = att.get("text", {}).get("content", "")
-                elif att.get("type") == "QUERY":
-                    query_att = att.get("query", {})
+                if "text" in att:
+                    text_parts.append(att["text"].get("content", ""))
+                elif "query" in att:
+                    query_att = att["query"]
                     result["sql"] = query_att.get("query", "")
                     result["description"] = query_att.get("description", "")
-                    columns = query_att.get("columns", [])
-                    rows = query_att.get("data", [])
-                    if columns and rows:
-                        result["data"] = {
-                            "columns": [c.get("name", "") for c in columns],
-                            "rows": rows,
-                        }
+                    statement_id = query_att.get("statement_id", "")
+                    if statement_id:
+                        result["statement_id"] = statement_id
+                    row_count = query_att.get("query_result_metadata", {}).get("row_count")
+                    if row_count is not None:
+                        result["row_count"] = row_count
+
+            query_result = msg.get("query_result", {})
+            stmt_id = query_result.get("statement_id", result.get("statement_id", ""))
+            if stmt_id and not result.get("data"):
+                try:
+                    sr = await client.get(
+                        f"{DATABRICKS_HOST.rstrip('/')}/api/2.0/sql/statements/{stmt_id}",
+                        headers=HEADERS,
+                    )
+                    if sr.status_code == 200:
+                        sr_data = sr.json()
+                        manifest = sr_data.get("manifest", {})
+                        columns = [c.get("name", "") for c in manifest.get("schema", {}).get("columns", [])]
+                        chunks = sr_data.get("result", {}).get("data_array", [])
+                        if columns and chunks:
+                            result["data"] = {"columns": columns, "rows": chunks}
+                except Exception:
+                    pass
+
+            result["text"] = "\n\n".join(text_parts)
             return result
 
         if status in ("FAILED", "CANCELLED"):

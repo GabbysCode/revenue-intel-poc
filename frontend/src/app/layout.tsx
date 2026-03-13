@@ -4,8 +4,8 @@ import { Sidebar } from "@/components/layout/Sidebar";
 import { ChatPanel } from "@/components/nlp/ChatPanel";
 
 export const metadata: Metadata = {
-  title: "RevIntel - Revenue Intelligence Platform",
-  description: "Professional revenue analytics and intelligence dashboard",
+  title: "KPMG Revenue Intel - AI-Enabled Revenue Intelligence Platform",
+  description: "AI-enabled revenue intelligence platform for unified forecasting, scenario planning and natural language analytics",
 };
 
 export default function RootLayout({

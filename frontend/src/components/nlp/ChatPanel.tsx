@@ -74,7 +74,7 @@ export function ChatPanel() {
         type="button"
         onClick={() => setIsOpen(!isOpen)}
         className="fixed bottom-6 right-6 z-50 w-14 h-14 rounded-full flex items-center justify-center shadow-lg transition-transform hover:scale-105"
-        style={{ backgroundColor: "#4ade80", color: "#0f0f0f" }}
+        style={{ backgroundColor: "#81d4e2", color: "#0f0f0f" }}
         aria-label="Toggle AI Assistant"
       >
         <span className="text-xl">💬</span>
@@ -121,7 +121,7 @@ export function ChatPanel() {
                     : "rounded-bl-none"
                 }`}
                 style={{
-                  backgroundColor: msg.role === "user" ? "#4ade80" : "#252525",
+                  backgroundColor: msg.role === "user" ? "#81d4e2" : "#252525",
                   color: msg.role === "user" ? "#0f0f0f" : "#e5e5e5",
                 }}
               >
@@ -194,7 +194,7 @@ export function ChatPanel() {
               disabled={loading || !input.trim()}
               className="px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-50"
               style={{
-                backgroundColor: "#4ade80",
+                backgroundColor: "#81d4e2",
                 color: "#0f0f0f",
               }}
             >

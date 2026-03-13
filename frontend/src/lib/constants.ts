@@ -9,12 +9,12 @@ export const SERVICE_LINES = [
   { id: "SL01", name: "Audit & Assurance", color: "#60a5fa" },
   { id: "SL02", name: "Tax & Legal", color: "#a78bfa" },
   { id: "SL03", name: "Advisory", color: "#fb923c" },
-  { id: "SL04", name: "Consulting", color: "#4ade80" },
+  { id: "SL04", name: "Consulting", color: "#38bdf8" },
   { id: "SL05", name: "Risk & Compliance", color: "#f87171" },
   { id: "SL06", name: "Technology", color: "#2dd4bf" },
 ];
 
-export const CHART_COLORS = ["#4ade80", "#60a5fa", "#a78bfa", "#fb923c", "#f87171", "#2dd4bf", "#facc15"];
+export const CHART_COLORS = ["#4ade80", "#60a5fa", "#a78bfa", "#fb923c", "#f87171", "#38bdf8", "#facc15"];
 
 export const NAV_ITEMS = [
   { group: "Revenue Intelligence", items: [

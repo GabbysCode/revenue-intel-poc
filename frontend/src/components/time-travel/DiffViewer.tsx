@@ -3,6 +3,22 @@
 import React, { useEffect, useState } from "react";
 import { formatCurrency, formatPct } from "@/lib/formatters";
 
+const REGION_NAMES: Record<string, string> = {
+  R001: "Americas",
+  R002: "EMEA",
+  R003: "APAC",
+  R004: "UK",
+};
+
+const SL_NAMES: Record<string, string> = {
+  SL01: "Audit & Assurance",
+  SL02: "Tax & Legal",
+  SL03: "Advisory",
+  SL04: "Consulting",
+  SL05: "Risk & Compliance",
+  SL06: "Technology",
+};
+
 export interface DiffRow {
   date: string;
   region_id: string;
@@ -120,6 +136,17 @@ export function DiffViewer({ v1, v2 }: DiffViewerProps) {
 
   const d = data;
   const deltaColor = d.delta >= 0 ? "#4ade80" : "#f87171";
+  const deltaPct = d.v1_total_revenue > 0
+    ? ((d.delta / d.v1_total_revenue) * 100).toFixed(1)
+    : "0.0";
+
+  const regionSummary = d.rows.reduce<Record<string, number>>((acc, row) => {
+    const name = REGION_NAMES[row.region_id] || row.region_id;
+    acc[name] = (acc[name] || 0) + row.revenue_diff;
+    return acc;
+  }, {});
+
+  const sortedRegions = Object.entries(regionSummary).sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]));
 
   return (
     <div
@@ -128,71 +155,113 @@ export function DiffViewer({ v1, v2 }: DiffViewerProps) {
     >
       {/* Summary */}
       <div className="p-6 border-b" style={{ borderColor: "#2a2a2a" }}>
-        <div className="flex flex-wrap gap-8">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
           <div>
-            <p className="text-xs text-[#888888]">Version {v1} Total Revenue</p>
+            <p className="text-xs text-[#888888] mb-1">Version {v1} Revenue</p>
             <p className="text-lg font-semibold text-[#e5e5e5]">
               {formatCurrency(d.v1_total_revenue)}
             </p>
           </div>
           <div>
-            <p className="text-xs text-[#888888]">Version {v2} Total Revenue</p>
+            <p className="text-xs text-[#888888] mb-1">Version {v2} Revenue</p>
             <p className="text-lg font-semibold text-[#e5e5e5]">
               {formatCurrency(d.v2_total_revenue)}
             </p>
           </div>
           <div>
-            <p className="text-xs text-[#888888]">Delta</p>
+            <p className="text-xs text-[#888888] mb-1">Net Change</p>
             <p className="text-lg font-semibold" style={{ color: deltaColor }}>
               {d.delta >= 0 ? "+" : ""}{formatCurrency(d.delta)}
+            </p>
+            <p className="text-xs mt-0.5" style={{ color: deltaColor }}>
+              {d.delta >= 0 ? "+" : ""}{deltaPct}%
+            </p>
+          </div>
+          <div>
+            <p className="text-xs text-[#888888] mb-1">Rows Changed</p>
+            <p className="text-lg font-semibold text-[#e5e5e5]">
+              {d.rows.length.toLocaleString()}
             </p>
           </div>
         </div>
       </div>
 
+      {/* Regional impact bars */}
+      {sortedRegions.length > 0 && (
+        <div className="p-6 border-b" style={{ borderColor: "#2a2a2a" }}>
+          <h4 className="text-xs font-medium text-[#9ca3af] mb-3">Impact by Region</h4>
+          <div className="space-y-2">
+            {sortedRegions.map(([name, diff]) => {
+              const maxAbs = Math.max(...sortedRegions.map(([, v]) => Math.abs(v)));
+              const pct = maxAbs > 0 ? Math.abs(diff) / maxAbs * 100 : 0;
+              const color = diff >= 0 ? "#4ade80" : "#f87171";
+              return (
+                <div key={name} className="flex items-center gap-3">
+                  <span className="text-xs text-[#e5e5e5] w-20 flex-shrink-0">{name}</span>
+                  <div className="flex-1 h-5 rounded-sm overflow-hidden" style={{ backgroundColor: "#252525" }}>
+                    <div
+                      className="h-full rounded-sm transition-all"
+                      style={{ width: `${pct}%`, backgroundColor: color, opacity: 0.7 }}
+                    />
+                  </div>
+                  <span className="text-xs font-medium w-28 text-right flex-shrink-0" style={{ color }}>
+                    {diff >= 0 ? "+" : ""}{formatCurrency(diff)}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {/* Table */}
-      <div className="overflow-x-auto">
+      <div className="overflow-x-auto max-h-[480px] overflow-y-auto">
         <table className="w-full text-sm">
-          <thead>
+          <thead className="sticky top-0">
             <tr style={{ backgroundColor: "#151515" }}>
-              <th className="px-4 py-3 text-left font-medium text-[#9ca3af]">Date</th>
+              <th className="px-4 py-3 text-left font-medium text-[#9ca3af]">Period</th>
               <th className="px-4 py-3 text-left font-medium text-[#9ca3af]">Region</th>
               <th className="px-4 py-3 text-left font-medium text-[#9ca3af]">Service Line</th>
-              <th className="px-4 py-3 text-right font-medium text-[#9ca3af]">V1 Revenue</th>
-              <th className="px-4 py-3 text-right font-medium text-[#9ca3af]">V2 Revenue</th>
+              <th className="px-4 py-3 text-right font-medium text-[#9ca3af]">V{v1}</th>
+              <th className="px-4 py-3 text-right font-medium text-[#9ca3af]">V{v2}</th>
               <th className="px-4 py-3 text-right font-medium text-[#9ca3af]">Diff</th>
-              <th className="px-4 py-3 text-right font-medium text-[#9ca3af]">% Change</th>
+              <th className="px-4 py-3 text-right font-medium text-[#9ca3af]">Change</th>
             </tr>
           </thead>
           <tbody>
-            {d.rows.map((row, i) => (
-              <tr
-                key={`${row.date}-${row.region_id}-${row.service_line_id}-${i}`}
-                style={{ backgroundColor: i % 2 === 0 ? "#1a1a1a" : "#151515" }}
-              >
-                <td className="px-4 py-3 text-[#e5e5e5]">{row.date}</td>
-                <td className="px-4 py-3 text-[#e5e5e5]">{row.region_id}</td>
-                <td className="px-4 py-3 text-[#e5e5e5]">{row.service_line_id}</td>
-                <td className="px-4 py-3 text-right text-[#e5e5e5]">
-                  {formatCurrency(row.v1_revenue)}
-                </td>
-                <td className="px-4 py-3 text-right text-[#e5e5e5]">
-                  {formatCurrency(row.v2_revenue)}
-                </td>
-                <td
-                  className="px-4 py-3 text-right font-medium"
-                  style={{ color: row.revenue_diff >= 0 ? "#4ade80" : "#f87171" }}
+            {d.rows.map((row, i) => {
+              const period = row.date
+                ? new Date(row.date).toLocaleDateString("en-US", { month: "short", year: "2-digit" })
+                : "";
+              return (
+                <tr
+                  key={`${row.date}-${row.region_id}-${row.service_line_id}-${i}`}
+                  style={{ backgroundColor: i % 2 === 0 ? "#1a1a1a" : "#151515" }}
                 >
-                  {row.revenue_diff >= 0 ? "+" : ""}{formatCurrency(row.revenue_diff)}
-                </td>
-                <td
-                  className="px-4 py-3 text-right font-medium"
-                  style={{ color: row.pct_change >= 0 ? "#4ade80" : "#f87171" }}
-                >
-                  {formatPct(row.pct_change)}
-                </td>
-              </tr>
-            ))}
+                  <td className="px-4 py-2.5 text-[#e5e5e5]">{period}</td>
+                  <td className="px-4 py-2.5 text-[#e5e5e5]">{REGION_NAMES[row.region_id] || row.region_id}</td>
+                  <td className="px-4 py-2.5 text-[#e5e5e5]">{SL_NAMES[row.service_line_id] || row.service_line_id}</td>
+                  <td className="px-4 py-2.5 text-right text-[#a3a3a3]">
+                    {formatCurrency(row.v1_revenue)}
+                  </td>
+                  <td className="px-4 py-2.5 text-right text-[#e5e5e5]">
+                    {formatCurrency(row.v2_revenue)}
+                  </td>
+                  <td
+                    className="px-4 py-2.5 text-right font-medium"
+                    style={{ color: row.revenue_diff >= 0 ? "#4ade80" : "#f87171" }}
+                  >
+                    {row.revenue_diff >= 0 ? "+" : ""}{formatCurrency(row.revenue_diff)}
+                  </td>
+                  <td
+                    className="px-4 py-2.5 text-right font-medium"
+                    style={{ color: row.pct_change >= 0 ? "#4ade80" : "#f87171" }}
+                  >
+                    {formatPct(row.pct_change)}
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>

@@ -6,8 +6,12 @@ import { formatCurrency } from "@/lib/formatters";
 export interface Version {
   version_id: number;
   version_date: string;
+  label?: string;
   record_count: number;
   total_revenue: number;
+  delta_pct?: number;
+  avg_margin?: number;
+  total_collected?: number;
 }
 
 export interface VersionTimelineProps {
@@ -30,11 +34,15 @@ export function VersionTimeline({ selectedVersion, onSelect, onVersionsLoaded }:
       .then((json) => {
         const raw = json.data ?? json.versions ?? json;
         const arr = Array.isArray(raw) ? raw : [];
-        const mapped = arr.map((v: { version_id?: number; version_date?: string; record_count?: number; total_revenue?: number }) => ({
-          version_id: v.version_id ?? 0,
-          version_date: v.version_date ?? "",
-          record_count: v.record_count ?? 0,
-          total_revenue: v.total_revenue ?? 0,
+        const mapped = arr.map((v: Record<string, unknown>) => ({
+          version_id: Number(v.version_id ?? 0),
+          version_date: String(v.version_date ?? ""),
+          label: String(v.label ?? `Version ${v.version_id}`),
+          record_count: Number(v.record_count ?? 0),
+          total_revenue: Number(v.total_revenue ?? 0),
+          delta_pct: Number(v.delta_pct ?? 0),
+          avg_margin: Number(v.avg_margin ?? 0),
+          total_collected: Number(v.total_collected ?? 0),
         }));
         setVersions(mapped);
         onVersionsLoaded?.(mapped);
@@ -99,34 +107,60 @@ export function VersionTimeline({ selectedVersion, onSelect, onVersionsLoaded }:
               type="button"
               onClick={() => onSelect?.(v.version_id)}
               className={`
-                flex-shrink-0 w-48 rounded-lg border p-4 text-left transition-colors
+                flex-shrink-0 w-56 rounded-lg border p-4 text-left transition-colors
                 hover:bg-[#222222]
                 ${selectedVersion === v.version_id ? "border-[#4ade80]" : "border-[#2a2a2a]"}
               `}
               style={{ backgroundColor: selectedVersion === v.version_id ? "#1e2a1e" : "#1a1a1a" }}
             >
-              <div className="flex items-center gap-2 mb-2">
-                <div
-                  className="w-2.5 h-2.5 rounded-full"
-                  style={{
-                    backgroundColor: selectedVersion === v.version_id ? "#4ade80" : "#2a2a2a",
-                  }}
-                />
-                <span className="text-xs font-medium text-[#888888]">v{v.version_id}</span>
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-2">
+                  <div
+                    className="w-2.5 h-2.5 rounded-full"
+                    style={{
+                      backgroundColor: selectedVersion === v.version_id ? "#4ade80" : "#2a2a2a",
+                    }}
+                  />
+                  <span className="text-xs font-medium text-[#888888]">v{v.version_id}</span>
+                </div>
+                {v.delta_pct !== 0 && (
+                  <span
+                    className="text-xs font-semibold px-1.5 py-0.5 rounded"
+                    style={{
+                      color: v.delta_pct > 0 ? "#4ade80" : "#f87171",
+                      backgroundColor: v.delta_pct > 0 ? "rgba(74,222,128,0.1)" : "rgba(248,113,113,0.1)",
+                    }}
+                  >
+                    {v.delta_pct > 0 ? "+" : ""}{v.delta_pct.toFixed(1)}%
+                  </span>
+                )}
               </div>
-              <p className="text-sm font-medium text-[#e5e5e5]">
+              <p className="text-sm font-semibold text-[#e5e5e5]">
+                {v.label}
+              </p>
+              <p className="text-xs text-[#888888] mt-0.5">
                 {new Date(v.version_date).toLocaleDateString("en-US", {
                   month: "short",
                   day: "numeric",
                   year: "numeric",
                 })}
               </p>
-              <p className="text-xs text-[#888888] mt-1">
-                {v.record_count.toLocaleString()} records
-              </p>
-              <p className="text-sm font-semibold mt-2" style={{ color: "#4ade80" }}>
-                {formatCurrency(v.total_revenue, true)}
-              </p>
+              <div className="mt-3 space-y-1">
+                <div className="flex justify-between items-baseline">
+                  <span className="text-xs text-[#888888]">Revenue</span>
+                  <span className="text-sm font-semibold" style={{ color: "#4ade80" }}>
+                    {formatCurrency(v.total_revenue, true)}
+                  </span>
+                </div>
+                <div className="flex justify-between items-baseline">
+                  <span className="text-xs text-[#888888]">Margin</span>
+                  <span className="text-xs text-[#e5e5e5]">{v.avg_margin?.toFixed(1)}%</span>
+                </div>
+                <div className="flex justify-between items-baseline">
+                  <span className="text-xs text-[#888888]">Records</span>
+                  <span className="text-xs text-[#e5e5e5]">{v.record_count.toLocaleString()}</span>
+                </div>
+              </div>
             </button>
           </React.Fragment>
         ))}

@@ -50,22 +50,27 @@ async def dso_metrics(
     region: Optional[str] = Query(None),
 ):
     region_filter = f"AND region_id = '{region}'" if region else ""
+
     df = query(f"""
         SELECT
             SUM(ar_balance) as total_ar,
             SUM(billed_amount) as total_billed,
-            CASE WHEN SUM(billed_amount) > 0
-                 THEN ROUND(SUM(ar_balance) / (SUM(billed_amount) / 365.0), 1)
-                 ELSE 0 END as dso_days
+            COUNT(DISTINCT date) as months
         FROM fact_revenue
         WHERE date >= '{period_start}' AND date <= '{period_end}'
         {region_filter}
     """)
-    row = df.iloc[0]
+
+    total_ar = float(df.iloc[0]["total_ar"] or 0)
+    total_billed = float(df.iloc[0]["total_billed"] or 0)
+    months = max(int(df.iloc[0]["months"] or 1), 1)
+    daily_billed = total_billed / (months * 30) if total_billed > 0 else 1
+    dso = round(total_ar / daily_billed, 1)
+
     return {
-        "dso_days": float(row["dso_days"]),
-        "total_ar": round(float(row["total_ar"]), 2),
-        "total_billed": round(float(row["total_billed"]), 2),
+        "dso_days": dso,
+        "total_ar": round(total_ar, 2),
+        "total_billed": round(total_billed, 2),
     }
 
 
