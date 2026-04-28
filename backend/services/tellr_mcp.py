@@ -1,13 +1,31 @@
 """
-Tellr deck generation over MCP — supports Pattern A (Databricks Apps OBO) and
-Pattern B (external caller with OAuth U2M bearer token), auto-picking based on
-whether an `x-forwarded-email` is present on the inbound request.
+Tellr deck generation over MCP — three auth patterns, picked at request time.
 
 Docs: https://robertwhiffin.github.io/ai-slide-generator/docs/technical/mcp-server/
       https://robertwhiffin.github.io/ai-slide-generator/docs/technical/mcp-integration-guide/
 
-PATs (dapi...) are rejected for Apps MCP — use an OAuth U2M token, e.g.:
-  databricks auth token -p <profile> | jq -r .access_token
+Pattern A — Same-workspace Databricks App → Tellr (forwarded identity).
+  When RevIntel is itself a Databricks App in the same workspace as Tellr, the
+  Apps proxy STRIPS any caller-supplied `Authorization` / `x-forwarded-*`
+  headers and INJECTS proxy-attested identity headers on the inbound side.
+  Tellr trusts those, so on the outbound side we send NO auth headers at all
+  (sending `x-forwarded-email` ourselves is incorrect — the proxy does it).
+
+Pattern C — Cross-workspace deploy (Service Principal OAuth M2M).
+  When RevIntel is deployed outside the Tellr workspace, Pattern A is not
+  available. We use a Databricks service principal in the Tellr workspace
+  (`client_credentials` grant against `<tellr-workspace>/oidc/v1/token`) and
+  cache the ~1-hour access token in-process, refreshing 60 s before expiry.
+  Decks are attributed to the SP, not the human user — Tellr docs gotcha.
+
+Pattern B — External caller with a static OAuth U2M bearer token (local dev).
+  Mint with `databricks auth token -p <profile> | jq -r .access_token` and
+  drop in `DATABRICKS_OAUTH_TOKEN`. PATs (dapi…) are rejected by Apps MCP.
+
+Pattern detection precedence (per request):
+  inbound has `x-forwarded-email`        → A
+  TELLR_SP_CLIENT_ID + TELLR_SP_CLIENT_SECRET set → C
+  otherwise                              → B
 
 MCP v1 has no export_pptx/pdf on the wire; we build PDF from get_deck_status's
 html_document. Direct PPTX/Google Slides export is captured under TODO(v1.1).
@@ -25,6 +43,7 @@ import uuid
 from dataclasses import dataclass
 from io import BytesIO
 from typing import Any, Literal, Optional
+from urllib.parse import urlparse
 
 import httpx
 from fastapi import Request
@@ -34,45 +53,139 @@ logger = logging.getLogger(__name__)
 DEFAULT_POLL_SECONDS = 2.0
 DEFAULT_DEADLINE_SECONDS = 600.0
 
-PatternId = Literal["A", "B"]
+PatternId = Literal["A", "B", "C"]
+
+
+def _tellr_workspace_host() -> str:
+    """Workspace host used as the OIDC token issuer for Pattern C.
+
+    Defaults to the host part of TELLR_BASE_URL, but can be overridden with
+    TELLR_WORKSPACE_HOST when the app's URL and the workspace's OIDC issuer
+    differ (rare — but possible behind custom domains).
+    """
+    override = (os.environ.get("TELLR_WORKSPACE_HOST") or "").strip().rstrip("/")
+    if override:
+        return override
+    base = (os.environ.get("TELLR_BASE_URL") or "").strip()
+    if not base:
+        return ""
+    parsed = urlparse(base)
+    if not parsed.scheme or not parsed.netloc:
+        return ""
+    return f"{parsed.scheme}://{parsed.netloc}"
+
+
+class TellrSPTokenCache:
+    """Per-process Pattern C token cache.
+
+    Mints OAuth M2M access tokens via the workspace's OIDC token endpoint
+    (`<workspace>/oidc/v1/token`, `grant_type=client_credentials`,
+    `scope=all-apis`) and caches them with a 60 s early-refresh margin so
+    we never hand out a token that's about to expire mid-flight.
+    """
+
+    _EARLY_REFRESH_S = 60
+
+    def __init__(self, workspace_host: str, client_id: str, client_secret: str) -> None:
+        self._workspace = workspace_host.rstrip("/")
+        self._client_id = client_id
+        self._client_secret = client_secret
+        self._token: Optional[str] = None
+        self._exp: float = 0.0
+        self._lock = asyncio.Lock()
+
+    def _is_fresh(self) -> bool:
+        return bool(self._token) and (self._exp - self._EARLY_REFRESH_S) > time.time()
+
+    def invalidate(self) -> None:
+        """Force the next `token()` call to mint a fresh one (used after a 401)."""
+        self._token = None
+        self._exp = 0.0
+
+    async def token(self) -> str:
+        if self._is_fresh():
+            return self._token  # type: ignore[return-value]
+        async with self._lock:
+            if self._is_fresh():
+                return self._token  # type: ignore[return-value]
+            url = f"{self._workspace}/oidc/v1/token"
+            data = {"grant_type": "client_credentials", "scope": "all-apis"}
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                resp = await client.post(
+                    url,
+                    data=data,
+                    auth=(self._client_id, self._client_secret),
+                    headers={"Accept": "application/json"},
+                )
+            if resp.status_code != 200:
+                raise RuntimeError(
+                    f"Tellr SP token endpoint returned {resp.status_code}: {resp.text[:300]}"
+                )
+            payload = resp.json()
+            access = payload.get("access_token")
+            ttl = int(payload.get("expires_in", 3600))
+            if not access:
+                raise RuntimeError("Tellr SP token response missing access_token")
+            self._token = access
+            self._exp = time.time() + max(ttl, 60)
+            return access
+
+
+_SP_CACHE: Optional[TellrSPTokenCache] = None
+
+
+def _get_sp_cache() -> Optional[TellrSPTokenCache]:
+    """Lazily build the Pattern C cache from env vars; None if Pattern C isn't configured."""
+    global _SP_CACHE
+    cid = (os.environ.get("TELLR_SP_CLIENT_ID") or "").strip()
+    secret = (os.environ.get("TELLR_SP_CLIENT_SECRET") or "").strip()
+    host = _tellr_workspace_host()
+    if not (cid and secret and host):
+        return None
+    if _SP_CACHE is None or _SP_CACHE._client_id != cid or _SP_CACHE._workspace != host.rstrip("/"):
+        _SP_CACHE = TellrSPTokenCache(workspace_host=host, client_id=cid, client_secret=secret)
+    return _SP_CACHE
+
+
+def _sp_configured() -> bool:
+    return _get_sp_cache() is not None
 
 
 @dataclass(frozen=True)
 class TellrAuthContext:
-    """Resolved auth shape for a single Tellr MCP call.
-
-    - Pattern A (Databricks Apps OBO): the Apps runtime injects the user's
-      identity via `x-forwarded-email`; the call carries no Authorization
-      header — Apps handles OBO downstream. We forward the email so Tellr
-      can scope the deck to that user's Genie permissions.
-
-    - Pattern B (external caller): we attach an OAuth U2M bearer token from
-      the server's environment (DATABRICKS_OAUTH_TOKEN / TELLR_OAUTH_TOKEN).
-    """
+    """Resolved auth shape for a single Tellr MCP call. See module docstring."""
 
     pattern: PatternId
     base_url: str
     forwarded_email: Optional[str] = None
     bearer_token: Optional[str] = None
+    sp_cache: Optional[TellrSPTokenCache] = None
 
-    def headers(self) -> dict[str, str]:
+    async def headers(self) -> dict[str, str]:
         h: dict[str, str] = {
             "Content-Type": "application/json",
             "Accept": "application/json, text/event-stream",
         }
-        if self.pattern == "A" and self.forwarded_email:
-            h["x-forwarded-email"] = self.forwarded_email
+        if self.pattern == "A":
+            # Apps proxy injects identity headers on Tellr's side; we send none.
+            return h
+        if self.pattern == "C" and self.sp_cache is not None:
+            h["Authorization"] = f"Bearer {await self.sp_cache.token()}"
+            return h
         if self.pattern == "B" and self.bearer_token:
             h["Authorization"] = f"Bearer {self.bearer_token}"
         return h
 
 
 def detect_pattern(request: Optional[Request]) -> PatternId:
-    """Pattern A iff inbound request carries `x-forwarded-email`, else Pattern B."""
-    if request is None:
-        return "B"
-    fwd = (request.headers.get("x-forwarded-email") or "").strip()
-    return "A" if fwd else "B"
+    """A → C → B precedence (see module docstring)."""
+    if request is not None:
+        fwd = (request.headers.get("x-forwarded-email") or "").strip()
+        if fwd:
+            return "A"
+    if _sp_configured():
+        return "C"
+    return "B"
 
 
 def resolve_auth_context(request: Optional[Request]) -> TellrAuthContext:
@@ -81,6 +194,8 @@ def resolve_auth_context(request: Optional[Request]) -> TellrAuthContext:
     if pattern == "A":
         fwd = (request.headers.get("x-forwarded-email") if request else "") or ""
         return TellrAuthContext(pattern="A", base_url=base, forwarded_email=fwd.strip() or None)
+    if pattern == "C":
+        return TellrAuthContext(pattern="C", base_url=base, sp_cache=_get_sp_cache())
     token = (os.environ.get("DATABRICKS_OAUTH_TOKEN") or os.environ.get("TELLR_OAUTH_TOKEN", "")).strip()
     return TellrAuthContext(pattern="B", base_url=base, bearer_token=token or None)
 
@@ -114,14 +229,50 @@ def result_text_from_payload(payload: dict[str, Any]) -> str:
     return str(content[0].get("text", ""))
 
 
-async def mcp_post(
-    client: httpx.AsyncClient, url: str, body: dict[str, Any], base_headers: dict[str, str]
+async def _post_with_auth_retry(
+    client: httpx.AsyncClient,
+    url: str,
+    body: dict[str, Any],
+    base_headers: dict[str, str],
+    auth: Optional[TellrAuthContext],
 ) -> httpx.Response:
-    return await client.post(url, json=body, headers=base_headers, timeout=120.0)
+    """POST and, for Pattern C, retry exactly once on 401 after invalidating the SP token cache.
+
+    Catches the rare race where Tellr accepts our token mint but rejects it on
+    use (clock skew, edge token rotation). Pattern A and B do not retry — A has
+    no token to refresh, and B's token came from the user's static env var.
+    """
+    resp = await client.post(url, json=body, headers=base_headers, timeout=120.0)
+    if (
+        resp.status_code == 401
+        and auth is not None
+        and auth.pattern == "C"
+        and auth.sp_cache is not None
+    ):
+        logger.info("Tellr returned 401 on Pattern C; refreshing SP token and retrying once")
+        auth.sp_cache.invalidate()
+        retry_headers = await auth.headers()
+        # Carry over any non-auth headers the caller added (e.g. mcp-session-id).
+        merged = {**base_headers, **retry_headers}
+        resp = await client.post(url, json=body, headers=merged, timeout=120.0)
+    return resp
+
+
+async def mcp_post(
+    client: httpx.AsyncClient,
+    url: str,
+    body: dict[str, Any],
+    base_headers: dict[str, str],
+    auth: Optional[TellrAuthContext] = None,
+) -> httpx.Response:
+    return await _post_with_auth_retry(client, url, body, base_headers, auth)
 
 
 async def mcp_open_session(
-    client: httpx.AsyncClient, murl: str, base_headers: dict[str, str]
+    client: httpx.AsyncClient,
+    murl: str,
+    base_headers: dict[str, str],
+    auth: Optional[TellrAuthContext] = None,
 ) -> dict[str, str]:
     init_body: dict[str, Any] = {
         "jsonrpc": "2.0",
@@ -133,7 +284,7 @@ async def mcp_open_session(
             "clientInfo": {"name": "revintel-poc", "version": "0.1"},
         },
     }
-    r = await mcp_post(client, murl, init_body, base_headers)
+    r = await mcp_post(client, murl, init_body, base_headers, auth=auth)
     r.raise_for_status()
     decode_mcp_response(r)
     sid = r.headers.get("mcp-session-id")
@@ -142,7 +293,7 @@ async def mcp_open_session(
         extra["mcp-session-id"] = sid
     merged = {**base_headers, **extra}
     note: dict[str, Any] = {"jsonrpc": "2.0", "method": "notifications/initialized"}
-    await mcp_post(client, murl, note, merged)
+    await mcp_post(client, murl, note, merged, auth=auth)
     return extra
 
 
@@ -153,8 +304,9 @@ async def mcp_call_tool(
     name: str,
     arguments: dict[str, Any],
     req_id: int,
+    auth: Optional[TellrAuthContext] = None,
 ) -> dict[str, Any]:
-    sess = await mcp_open_session(client, murl, base_headers)
+    sess = await mcp_open_session(client, murl, base_headers, auth=auth)
     merged = {**base_headers, **sess}
     body: dict[str, Any] = {
         "jsonrpc": "2.0",
@@ -162,7 +314,7 @@ async def mcp_call_tool(
         "method": "tools/call",
         "params": {"name": name, "arguments": arguments},
     }
-    r = await mcp_post(client, murl, body, merged)
+    r = await mcp_post(client, murl, body, merged, auth=auth)
     r.raise_for_status()
     return decode_mcp_response(r)
 
@@ -269,7 +421,7 @@ async def create_deck_start(
     """
     murl = mcp_url(auth.base_url)
     cid = correlation_id or f"revintel-{uuid.uuid4().hex[:10]}"
-    headers = auth.headers()
+    headers = await auth.headers()
     ns = min(max(int(num_slides), 1), 50)
     create_args: dict[str, Any] = {
         "prompt": prompt,
@@ -277,7 +429,9 @@ async def create_deck_start(
         "correlation_id": cid,
     }
     async with httpx.AsyncClient() as client:
-        payload = await mcp_call_tool(client, murl, headers, "create_deck", create_args, req_id=2)
+        payload = await mcp_call_tool(
+            client, murl, headers, "create_deck", create_args, req_id=2, auth=auth
+        )
         start = json.loads(result_text_from_payload(payload))
     start["correlation_id"] = cid
     return start
@@ -287,7 +441,7 @@ async def get_deck_status_call(
     auth: TellrAuthContext, session_id: str, request_id: str
 ) -> dict[str, Any]:
     murl = mcp_url(auth.base_url)
-    headers = auth.headers()
+    headers = await auth.headers()
     async with httpx.AsyncClient() as client:
         payload = await mcp_call_tool(
             client,
@@ -296,6 +450,7 @@ async def get_deck_status_call(
             "get_deck_status",
             {"session_id": session_id, "request_id": request_id},
             req_id=3,
+            auth=auth,
         )
     return json.loads(result_text_from_payload(payload))
 
@@ -305,7 +460,7 @@ async def get_deck_call(
 ) -> dict[str, Any]:
     """`get_deck` is idempotent on a ready deck — used by the PDF endpoint."""
     murl = mcp_url(auth.base_url)
-    headers = auth.headers()
+    headers = await auth.headers()
     async with httpx.AsyncClient() as client:
         payload = await mcp_call_tool(
             client,
@@ -314,6 +469,7 @@ async def get_deck_call(
             "get_deck",
             {"session_id": session_id, "request_id": request_id},
             req_id=4,
+            auth=auth,
         )
     return json.loads(result_text_from_payload(payload))
 
@@ -344,14 +500,18 @@ async def create_deck_and_wait_ready(
 
 
 def tellr_configured(auth: Optional[TellrAuthContext] = None) -> bool:
-    """True iff Tellr base URL + (token for B / forwarded-email for A) are present."""
+    """True iff Tellr base URL + the auth bits required by the resolved pattern are present."""
     base = (os.environ.get("TELLR_BASE_URL") or "").strip()
     if not base:
         return False
     if auth is None:
-        # Fall back to env-only Pattern B check.
+        # Env-only check: any of Pattern C (SP creds) or Pattern B (static token).
+        if _sp_configured():
+            return True
         tok = (os.environ.get("DATABRICKS_OAUTH_TOKEN") or os.environ.get("TELLR_OAUTH_TOKEN", "")).strip()
         return bool(tok)
     if auth.pattern == "A":
         return bool(auth.forwarded_email)
+    if auth.pattern == "C":
+        return auth.sp_cache is not None
     return bool(auth.bearer_token)

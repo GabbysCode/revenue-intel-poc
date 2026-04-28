@@ -57,18 +57,27 @@ def _ensure_configured(auth: TellrAuthContext) -> None:
             status_code=503,
             detail="Tellr is not configured. Set TELLR_BASE_URL on the API server.",
         )
+    if auth.pattern == "A" and not auth.forwarded_email:
+        raise HTTPException(
+            status_code=503,
+            detail="Tellr Pattern A detected but `x-forwarded-email` is missing on the inbound request.",
+        )
+    if auth.pattern == "C" and auth.sp_cache is None:
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "Tellr Pattern C requires TELLR_SP_CLIENT_ID and TELLR_SP_CLIENT_SECRET, plus "
+                "either TELLR_BASE_URL or TELLR_WORKSPACE_HOST so we can resolve the OIDC token endpoint."
+            ),
+        )
     if auth.pattern == "B" and not auth.bearer_token:
         raise HTTPException(
             status_code=503,
             detail=(
                 "Tellr Pattern B requires DATABRICKS_OAUTH_TOKEN (preferred) or TELLR_OAUTH_TOKEN; "
-                "PATs (dapi…) are rejected by Apps MCP."
+                "PATs (dapi…) are rejected by Apps MCP. For deployed apps, prefer Pattern A "
+                "(same workspace as Tellr) or Pattern C (service principal in the Tellr workspace)."
             ),
-        )
-    if auth.pattern == "A" and not auth.forwarded_email:
-        raise HTTPException(
-            status_code=503,
-            detail="Tellr Pattern A detected but `x-forwarded-email` is missing on the inbound request.",
         )
 
 
@@ -90,13 +99,20 @@ def _decorate_prompt_with_kpis(base: str, kpi_snapshot: KpiSnapshot) -> str:
 
 @router.get("/health")
 async def tellr_health(request: Request) -> dict[str, Any]:
-    """Surface detected pattern + a probe ping so SAs can debug from the browser."""
+    """Surface detected pattern + auth-presence flags so SAs can debug from the browser.
+
+    Patterns:
+      A — same-workspace App, identity injected by the Apps proxy (no token).
+      C — cross-workspace deploy via service-principal OAuth M2M (auto-refresh).
+      B — local dev, static OAuth U2M bearer in DATABRICKS_OAUTH_TOKEN.
+    """
     auth = resolve_auth_context(request)
     return {
         "configured": tellr_configured(auth),
         "pattern": auth.pattern,
         "base_url_set": bool(auth.base_url),
         "forwarded_email_present": bool(auth.forwarded_email),
+        "sp_cache_present": auth.sp_cache is not None,
         "bearer_token_present": bool(auth.bearer_token),
     }
 
