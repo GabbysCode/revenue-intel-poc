@@ -179,7 +179,24 @@ If you ever rotate the SP secret, just update the Apps secret and re-deploy — 
 
 ---
 
-## 7. Day-2 ops
+## 7. Releasing a new backend wheel
+
+The repo tracks a prebuilt wheel under `releases/` so locked-down deployers can ship without a Python toolchain (see [`DEPLOY_OPTION_A.md`](DEPLOY_OPTION_A.md)). After any backend code change, refresh that wheel:
+
+```bash
+make wheel              # builds backend/dist/<wheel> and copies it into releases/
+git add releases/ backend/src/
+git commit -m "Bump backend wheel to <new-version-or-sha>"
+git push
+```
+
+Anyone running `git pull` afterwards picks up the new wheel automatically. `databricks/deploy.sh` prefers `releases/<wheel>` over building from source, so they never need to invoke `make wheel` themselves.
+
+> If you bump `version` in `backend/pyproject.toml`, delete the old `releases/revintel_backend-<old-version>-*.whl` before committing — the directory should only ever hold one wheel per supported version.
+
+---
+
+## 8. Day-2 ops
 
 | Task | Command |
 |---|---|
@@ -191,7 +208,7 @@ If you ever rotate the SP secret, just update the Apps secret and re-deploy — 
 
 ---
 
-## 8. Known gotchas
+## 9. Known gotchas
 
 - **DuckDB is ephemeral.** `init_db()` re-seeds on missing `fact_revenue`, and synthetic data regenerates in seconds, so this is fine for the demo. The seed file lives at `<cwd>/data/revintel.duckdb` by default — override with `REVINTEL_DB_PATH` in the backend app's env if you want it elsewhere (e.g. `/tmp/revintel/revintel.duckdb`). If you ever need persistence across container restarts, switch to Lakebase or mount a UC volume.
 - **Backend cold start is fast** because the deployed `app.yaml` does `pip install dist/revintel_backend-*.whl` (one wheel, all deps pinned in metadata) instead of `pip install -r requirements.txt` (resolves and downloads every dep). The wheel is built locally before each deploy, so the deployed bytes are identical to whatever you tested.

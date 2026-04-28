@@ -33,13 +33,24 @@ frontend:
 	cd frontend && npx next dev
 
 # Build a distributable wheel for Databricks Apps deploys (and any other
-# pip install target). Drops into backend/dist/revintel_backend-<ver>-py3-none-any.whl.
+# pip install target). Drops into backend/dist/ AND copies into releases/
+# so the tracked artifact stays in sync — that's what locked-down deployers
+# without a Python toolchain pull straight from git.
 wheel:
 	@echo "Building revintel-backend wheel..."
-	$(VENV_BIN)/pip install --upgrade build >/dev/null
-	rm -rf backend/dist backend/build backend/src/*.egg-info
-	cd backend && $(abspath $(VENV_BIN))/python -m build --wheel --outdir dist
-	@ls -la backend/dist/
+	@rm -rf backend/dist backend/build backend/src/*.egg-info
+	@if $(VENV_BIN)/pip install --upgrade build >/dev/null 2>&1; then \
+		echo "  using PEP 517 build (network-fetched)"; \
+		cd backend && $(abspath $(VENV_BIN))/python -m build --wheel --outdir dist; \
+	else \
+		echo "  PyPI unreachable for 'pip install build' — falling back to in-venv setuptools"; \
+		cd backend && $(abspath $(VENV_BIN))/pip wheel . --no-deps --no-build-isolation -w dist; \
+	fi
+	@mkdir -p releases
+	@rm -f releases/revintel_backend-*.whl
+	@cp backend/dist/revintel_backend-*.whl releases/
+	@echo "Built and staged:"
+	@ls -la backend/dist/ releases/
 
 docker-up:
 	docker-compose up --build

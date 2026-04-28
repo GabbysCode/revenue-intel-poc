@@ -1,13 +1,15 @@
-# Deploy RevIntel — Option A (locked-down laptop, no `make` / `jq` / `brew`)
+# Deploy RevIntel — Option A (locked-down laptop, no Python toolchain needed)
 
 This is the **share-with-a-colleague** guide for deploying RevIntel as two
 Databricks Apps (`revintel-backend` + `revintel-frontend`) into the **same
-workspace as the Tellr app**, where the Apps proxy injects user identity and
-no service principal is needed (Pattern A auth).
+workspace as the Tellr app**. The Apps proxy injects user identity and no
+service principal is needed (Pattern A auth).
 
-It uses **only** Python, Node, Git, and the Databricks CLI — no Make,
-no jq, no Homebrew, no bash heredocs, so it works on a fully locked-down
-macOS / Linux / Windows box.
+The repo ships a **pre-built backend wheel** under `releases/`, so you do
+not need to install Python build tools, set up a venv, or run `pip
+install` locally. You just need Git, Node.js (for the frontend build),
+the Databricks CLI, and the system Python that comes with macOS / Linux
+(or a single python.org installer on Windows).
 
 If you have `make`, `jq`, and `bash`, [`DEPLOY.md`](DEPLOY.md) is shorter.
 
@@ -19,17 +21,17 @@ Each row below has install paths that don't need `sudo` or Homebrew.
 
 | Tool | macOS / Linux | Windows |
 |---|---|---|
-| Python ≥ 3.11 | [python.org installer](https://www.python.org/downloads/) | python.org installer or `winget install Python.Python.3.11` |
-| Node.js ≥ 18 + npm ≥ 9 | [nodejs.org installer](https://nodejs.org/en/download) or `nvm install 20` | nodejs.org installer or `winget install OpenJS.NodeJS.LTS` |
-| Git | [git-scm.com](https://git-scm.com/downloads) | `winget install Git.Git` |
-| Databricks CLI ≥ 0.230 | Download the macOS/Linux binary from [GitHub releases](https://github.com/databricks/cli/releases) → unzip → put `databricks` on `$PATH` | Same — grab the `.zip` for `windows_amd64`, unzip, add the folder to `PATH` |
+| Git | preinstalled, or [git-scm.com](https://git-scm.com/downloads) | `winget install Git.Git` |
+| Node.js ≥ 18 + npm ≥ 9 | [nodejs.org installer](https://nodejs.org/en/download) | `winget install OpenJS.NodeJS.LTS` |
+| Python 3 (any 3.x ≥ 3.8) | preinstalled (`python3 --version`) | `winget install Python.Python.3.11` |
+| Databricks CLI ≥ 0.230 | Download macOS/Linux binary from [GitHub releases](https://github.com/databricks/cli/releases) → unzip → put `databricks` on `$PATH` | Same — grab the `windows_amd64` zip, unzip, add the folder to `PATH` |
 
-You also need, **before deploying**:
+You also need:
 
-1. **Workspace access** to the Tellr workspace: `https://fevm-db-tellr-dev-workspace.cloud.databricks.com`.
+1. **Workspace access** to the Tellr workspace: `https://fevm-db-tellr-dev-workspace.cloud.databricks.com`
 2. **App-level access** on the Tellr app — ask whoever owns Tellr to add your user on its *Permissions* tab. The Tellr app is `db-tellr-dev` in that workspace.
 
-> **Verify your installs** with `python3.11 --version`, `node --version`, `npm --version`, `git --version`, `databricks --version`. All five must succeed before you continue.
+> Verify your installs: `git --version`, `node --version`, `npm --version`, `python3 --version`, `databricks --version`. All five must succeed before you continue.
 
 ---
 
@@ -40,63 +42,18 @@ git clone https://github.com/GabbysCode/revenue-intel-poc.git
 cd revenue-intel-poc
 ```
 
----
-
-## 2. Set up the backend Python environment
-
-We're skipping `make setup` and running the steps it would have run, by hand.
-
-### macOS / Linux
+Confirm the prebuilt wheel is present:
 
 ```bash
-python3.11 -m venv backend/.venv
-backend/.venv/bin/pip install --upgrade pip build
-backend/.venv/bin/pip install -e backend
+ls releases/
+# → revintel_backend-0.1.0-py3-none-any.whl
 ```
 
-### Windows PowerShell
-
-```powershell
-py -3.11 -m venv backend\.venv
-backend\.venv\Scripts\pip.exe install --upgrade pip build
-backend\.venv\Scripts\pip.exe install -e backend
-```
-
-> The `pip install -e backend` step pulls every dependency listed in `backend/pyproject.toml` (FastAPI, uvicorn, DuckDB, httpx, etc.). It takes 1-2 minutes.
+That's the wheel you'll deploy. **No `pip install`, no `python -m build`, no backend venv setup needed.**
 
 ---
 
-## 3. Build the wheel that gets deployed
-
-### macOS / Linux
-
-```bash
-rm -rf backend/dist backend/build
-cd backend
-../backend/.venv/bin/python -m build --wheel --outdir dist
-cd ..
-ls backend/dist/                                  # should show revintel_backend-0.1.0-py3-none-any.whl
-```
-
-### Windows PowerShell
-
-```powershell
-Remove-Item -Recurse -Force backend\dist, backend\build -ErrorAction SilentlyContinue
-cd backend
-..\backend\.venv\Scripts\python.exe -m build --wheel --outdir dist
-cd ..
-Get-ChildItem backend\dist
-```
-
-> If the build step fails with `ModuleNotFoundError: build`, fall back to the offline-friendly path that uses the setuptools already in your venv:
->
-> macOS / Linux: `cd backend && ../backend/.venv/bin/pip wheel . --no-deps --no-build-isolation -w dist && cd ..`
->
-> Windows: `cd backend; ..\backend\.venv\Scripts\pip.exe wheel . --no-deps --no-build-isolation -w dist; cd ..`
-
----
-
-## 4. Authenticate the Databricks CLI
+## 2. Authenticate the Databricks CLI
 
 ```bash
 databricks auth login \
@@ -104,7 +61,7 @@ databricks auth login \
   --profile tellr-dev
 ```
 
-A browser pops up — sign in. Then sanity-check (replaces `jq` with stdlib Python so you don't need to install anything extra):
+A browser pops up — sign in. Then sanity-check (uses stdlib Python instead of `jq`):
 
 ```bash
 databricks current-user me -p tellr-dev -o json > me.json
@@ -112,20 +69,20 @@ python3 -c "import json; print(json.load(open('me.json'))['userName'])"
 # → your.name@databricks.com
 ```
 
-Save your username for the rest of this guide. Replace `<YOUR.USERNAME>` everywhere below with the value the command above printed (e.g. `jane.doe@databricks.com`). On macOS / Linux you can also do `export ME="$(python3 -c "import json; print(json.load(open('me.json'))['userName'])")"` and use `$ME` in place of `<YOUR.USERNAME>`.
+**Note your username** — replace `<YOUR.USERNAME>` everywhere below with the value the command above printed (e.g. `jane.doe@databricks.com`).
 
 ---
 
-## 5. Stage the backend deploy bundle
+## 3. Stage the backend deploy bundle
 
-The deployed backend only needs two files: the spec (`app.yaml`) and the wheel. Stage them in a separate folder so the workspace upload doesn't drag along the source tree.
+The deployed backend only needs two files: the spec (`app.yaml`) and the wheel from `releases/`.
 
 ### macOS / Linux
 
 ```bash
 mkdir -p /tmp/revintel-deploy/dist
 cp backend/app.yaml /tmp/revintel-deploy/app.yaml
-cp backend/dist/revintel_backend-*.whl /tmp/revintel-deploy/dist/
+cp releases/revintel_backend-*.whl /tmp/revintel-deploy/dist/
 ls /tmp/revintel-deploy /tmp/revintel-deploy/dist
 ```
 
@@ -136,15 +93,13 @@ $stage = Join-Path $env:TEMP "revintel-deploy"
 Remove-Item -Recurse -Force $stage -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Path "$stage\dist" | Out-Null
 Copy-Item backend\app.yaml "$stage\app.yaml"
-Copy-Item backend\dist\revintel_backend-*.whl "$stage\dist\"
+Copy-Item releases\revintel_backend-*.whl "$stage\dist\"
 Get-ChildItem $stage, "$stage\dist"
 ```
 
 ---
 
-## 6. Import the source into the workspace
-
-Run twice — once for backend, once for frontend.
+## 4. Import both apps' source into the workspace
 
 ### macOS / Linux
 
@@ -170,11 +125,11 @@ databricks workspace import-dir frontend `
   --overwrite -p tellr-dev
 ```
 
-The frontend upload takes a minute (it's the bigger of the two). It does **not** include `node_modules/` or `.next/` — those get built on the Databricks side.
+The frontend upload takes a minute (it's the bigger of the two, but `node_modules/` and `.next/` are excluded — they're built on the Databricks side).
 
 ---
 
-## 7. Create the two apps (idempotent — re-runs are safe)
+## 5. Create both apps (idempotent — re-runs are safe)
 
 ```bash
 databricks apps create --json "{\"name\":\"revintel-backend\",\"description\":\"RevIntel FastAPI backend\"}"  -p tellr-dev
@@ -185,7 +140,7 @@ databricks apps create --json "{\"name\":\"revintel-frontend\",\"description\":\
 
 ---
 
-## 8. Deploy the backend
+## 6. Deploy the backend (first pass)
 
 ```bash
 databricks apps deploy revintel-backend \
@@ -193,13 +148,13 @@ databricks apps deploy revintel-backend \
   -p tellr-dev
 ```
 
-This takes ~1-2 minutes. The Apps runtime runs `pip install dist/revintel_backend-*.whl` and starts the `revintel-backend` console entry point.
+Takes ~1-2 minutes. Databricks Apps runs `pip install dist/revintel_backend-*.whl` and starts the `revintel-backend` console entry point.
 
 ---
 
-## 9. Tell the frontend where the backend is
+## 7. Wire the frontend to the backend URL
 
-Get the backend URL into a file, then build the frontend env JSON with Python (no `jq`, no heredocs):
+Get the backend URL into a file, then build the frontend env JSON with stdlib Python (no `jq`, no heredocs):
 
 ```bash
 databricks apps get revintel-backend -p tellr-dev -o json > be.json
@@ -213,7 +168,6 @@ open('frontend-env.json', 'w').write(json.dumps({
     'env': [{'name': 'BACKEND_UPSTREAM', 'value': url}],
 }, indent=2))
 "
-cat frontend-env.json   # Windows: type frontend-env.json
 ```
 
 You should see `BACKEND_URL = https://revintel-backend-…databricksapps.com` and a 4-line JSON file. Apply it:
@@ -224,7 +178,7 @@ databricks apps update revintel-frontend --json @frontend-env.json -p tellr-dev
 
 ---
 
-## 10. Deploy the frontend
+## 8. Deploy the frontend
 
 ```bash
 databricks apps deploy revintel-frontend \
@@ -236,9 +190,7 @@ First-time deploy is slow (~90 s) because it runs `npm ci && npm run build` on t
 
 ---
 
-## 11. Tell the backend where Tellr is
-
-Same Python-builds-the-JSON pattern:
+## 9. Tell the backend where Tellr is
 
 ```bash
 python3 -c "
@@ -266,7 +218,7 @@ databricks apps deploy revintel-backend \
 
 ---
 
-## 12. Smoke test
+## 10. Smoke test
 
 ```bash
 databricks apps get revintel-backend  -p tellr-dev -o json > be.json
@@ -279,10 +231,10 @@ print('FRONTEND:', json.load(open('fe.json')).get('url') or json.load(open('fe.j
 "
 ```
 
-Take the printed `BACKEND` URL and curl the two health endpoints (the backend is behind workspace auth, so curl from your authenticated browser via the URL bar is easier than curl from a terminal):
+Take the printed `BACKEND` URL and open these two paths in your browser (the apps are behind workspace auth, so the browser-based check is easier than `curl`):
 
-- `<BACKEND_URL>/api/health` — should return `{"status": "ok", "platform": "RevIntel POC"}`.
-- `<BACKEND_URL>/api/tellr/health` — must show `"pattern": "A"` and `"configured": true`. If it shows `"pattern": "B"` you're not in the same workspace as Tellr, or app-level access on the Tellr app is missing.
+- `<BACKEND_URL>/api/health` → `{"status": "ok", "platform": "RevIntel POC"}`
+- `<BACKEND_URL>/api/tellr/health` → must show `"pattern": "A"` and `"configured": true`. If you see `"pattern": "B"` you're not in the same workspace as Tellr, or app-level access on the Tellr app is missing.
 
 Then open the `FRONTEND` URL, pick any persona on `/login`, land on the dashboard, and click **Export to Presentation**. The deck progress modal should run to "ready" and download a PDF.
 
@@ -290,7 +242,24 @@ Then open the `FRONTEND` URL, pick any persona on `/login`, land on the dashboar
 
 ## Re-deploying after a code change
 
-You'll repeat steps 3, 5, 6, 8, and 10 (build wheel → restage → re-import → deploy backend → deploy frontend). The env-var steps (9, 11) only need to run again when the Tellr URL or backend URL actually change.
+The maintainer rebuilds the wheel via `make wheel` (which refreshes both `backend/dist/` and `releases/`) and commits it. To pick up that new wheel and redeploy, you just run:
+
+```bash
+git pull origin main
+# Re-stage with the new wheel:
+rm -rf /tmp/revintel-deploy && mkdir -p /tmp/revintel-deploy/dist
+cp backend/app.yaml /tmp/revintel-deploy/app.yaml
+cp releases/revintel_backend-*.whl /tmp/revintel-deploy/dist/
+# Re-import + redeploy backend:
+databricks workspace import-dir /tmp/revintel-deploy \
+  "/Workspace/Users/<YOUR.USERNAME>/revintel/backend" \
+  --overwrite -p tellr-dev
+databricks apps deploy revintel-backend \
+  --source-code-path "/Workspace/Users/<YOUR.USERNAME>/revintel/backend" \
+  -p tellr-dev
+```
+
+If the frontend changed too, rerun steps 4 (frontend half) and 8.
 
 ---
 
@@ -309,14 +278,12 @@ Press Ctrl-C to stop.
 
 | Symptom | Fix |
 |---|---|
-| `databricks: command not found` | The CLI binary isn't on `$PATH`. Verify with `which databricks` (macOS / Linux) or `where.exe databricks` (Windows). Re-add the folder it lives in to `PATH`. |
-| `python3.11: command not found` | Either install from python.org, or use whatever Python you have ≥ 3.11 — replace `python3.11` with `python3` everywhere and re-check `python3 --version`. |
-| `pip install -e backend` is slow / fails | If you're behind a corporate proxy, run `pip config set global.proxy http://your.proxy:port`. If your security policy blocks PyPI, you'll need to ask for an exception — RevIntel has 12 runtime deps, all standard. |
-| `python -m build` → `ModuleNotFoundError: build` | Use the offline-friendly fallback shown in step 3: `pip wheel . --no-deps --no-build-isolation -w dist`. |
-| `databricks apps deploy` → `PERMISSION_DENIED` | Your CLI auth profile doesn't have permission to create/deploy apps in the Tellr workspace. Ask a workspace admin to grant the `workspace.apps:CAN_MANAGE` privilege. |
-| `/api/tellr/health` shows `"pattern": "B"` | You deployed into the wrong workspace (Pattern A only works in the same workspace as Tellr). Re-run from step 4 with the correct workspace host. |
+| `releases/` is empty | The version of the repo you cloned predates the wheel artifacts. `git pull origin main` and re-check, or fall back to building locally (`pip install -e backend && pip install build && cd backend && python -m build --wheel --outdir dist && cp dist/*.whl ../releases/`). |
+| `databricks: command not found` | The CLI binary isn't on `$PATH`. `which databricks` (macOS / Linux) or `where.exe databricks` (Windows). Re-add the folder it lives in to `PATH`. |
+| `databricks apps deploy` → `PERMISSION_DENIED` | Your CLI auth profile doesn't have permission to create / deploy apps in the Tellr workspace. Ask a workspace admin to grant the `workspace.apps:CAN_MANAGE` privilege. |
+| `/api/tellr/health` shows `"pattern": "B"` | You deployed into the wrong workspace (Pattern A only works in the same workspace as Tellr). Re-run from step 2 with the correct workspace host. |
 | Tellr export → 401 / 403 | App-level access on the Tellr app is missing. Tellr owner must add your user (the human one, not a service principal) on the Tellr app's *Permissions* tab. |
-| Frontend opens but every API call returns 502 | `BACKEND_UPSTREAM` didn't get set on the frontend. Re-run step 9 and confirm with `databricks apps get revintel-frontend -p tellr-dev -o json > fe.json && python3 -c "import json; print(json.load(open('fe.json')).get('env'))"` |
+| Frontend opens but every API call returns 502 | `BACKEND_UPSTREAM` didn't get set on the frontend. Re-run step 7 and confirm: `databricks apps get revintel-frontend -p tellr-dev -o json > fe.json && python3 -c "import json; print(json.load(open('fe.json')).get('env'))"` |
 
 If you're stuck after 30 minutes, ping the RevIntel maintainer with the output of:
 

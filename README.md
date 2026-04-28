@@ -20,10 +20,12 @@ exports, and finance reports.
 > the workspace decision (Pattern A vs Pattern C), service-principal setup,
 > the `databricks/deploy.sh` helper, and post-deploy smoke tests.
 >
-> **Locked-down laptop (no `make` / `jq` / `brew`)?** See
-> [`DEPLOY_OPTION_A.md`](DEPLOY_OPTION_A.md) — fully manual Pattern A
-> (same-workspace) deploy using only Python, Node, Git, and the
-> Databricks CLI, with macOS / Linux / Windows command variants.
+> **Locked-down laptop (no `make` / `jq` / `brew` / Python toolchain)?**
+> See [`DEPLOY_OPTION_A.md`](DEPLOY_OPTION_A.md) — fully manual Pattern A
+> (same-workspace) deploy that uses the **prebuilt wheel checked into
+> `releases/`**, so you don't need a backend Python venv at all. Just
+> Git, Node, system Python, and the Databricks CLI. Includes macOS /
+> Linux / Windows command variants.
 
 ---
 
@@ -163,7 +165,10 @@ revintel-poc/
 │   ├── seed_unity_catalog.py      # notebook-style script — creates revintel.poc.*
 │   ├── upload_to_databricks.py    # one-shot uploader (uses SQL Statement API)
 │   └── do_upload.py               # incremental uploader from a local pickle
-└── DEPLOY.md                      # Databricks Apps deployment guide
+├── releases/                      # tracked: prebuilt backend wheel for locked-down deploys
+│   └── revintel_backend-<ver>-py3-none-any.whl
+├── DEPLOY.md                      # Databricks Apps deployment guide
+└── DEPLOY_OPTION_A.md             # locked-down Pattern A deploy (uses prebuilt wheel)
 ```
 
 ---

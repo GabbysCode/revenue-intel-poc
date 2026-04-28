@@ -50,22 +50,32 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
 
 # -----------------------------------------------------------------------------
-# 0. Build the backend wheel so `databricks workspace import-dir backend`
-#    picks it up under backend/dist/. This keeps the deployed install fast
-#    (one pinned wheel) and reproducible (same artifact you tested locally).
+# 0. Resolve the backend wheel.
+#    Order: releases/<wheel> if present (tracked in git, no Python needed)
+#         → backend/dist/<wheel> (just built locally)
+#         → build it now from backend/.venv (requires `make setup` first).
 # -----------------------------------------------------------------------------
-if [[ ! -x "${REPO_ROOT}/backend/.venv/bin/python" ]]; then
-  echo "ERROR: backend/.venv not found. Run 'make setup' first so we can build the wheel." >&2
-  exit 1
+WHEEL_FILE=""
+RELEASE_WHEEL=$(ls -1 "${REPO_ROOT}/releases"/revintel_backend-*.whl 2>/dev/null | head -n1)
+LOCAL_WHEEL=$(ls -1 "${REPO_ROOT}/backend/dist"/revintel_backend-*.whl 2>/dev/null | head -n1)
+
+if [[ -n "$RELEASE_WHEEL" ]]; then
+  WHEEL_FILE="$RELEASE_WHEEL"
+  echo "==> Using prebuilt wheel from releases/ — no Python toolchain needed."
+elif [[ -n "$LOCAL_WHEEL" ]]; then
+  WHEEL_FILE="$LOCAL_WHEEL"
+  echo "==> Using locally built wheel from backend/dist/"
+elif [[ -x "${REPO_ROOT}/backend/.venv/bin/python" ]]; then
+  echo "==> No prebuilt wheel found; building from source via backend/.venv"
+  "${REPO_ROOT}/backend/.venv/bin/pip" install --upgrade build >/dev/null
+  rm -rf "${REPO_ROOT}/backend/dist" "${REPO_ROOT}/backend/build" "${REPO_ROOT}/backend/src"/*.egg-info
+  ( cd "${REPO_ROOT}/backend" && "${REPO_ROOT}/backend/.venv/bin/python" -m build --wheel --outdir dist >/dev/null )
+  WHEEL_FILE=$(ls -1 "${REPO_ROOT}/backend/dist"/revintel_backend-*.whl 2>/dev/null | head -n1)
 fi
 
-echo "==> Building revintel-backend wheel"
-"${REPO_ROOT}/backend/.venv/bin/pip" install --upgrade build >/dev/null
-rm -rf "${REPO_ROOT}/backend/dist" "${REPO_ROOT}/backend/build" "${REPO_ROOT}/backend/src"/*.egg-info
-( cd "${REPO_ROOT}/backend" && "${REPO_ROOT}/backend/.venv/bin/python" -m build --wheel --outdir dist >/dev/null )
-WHEEL_FILE=$(ls -1 "${REPO_ROOT}/backend/dist"/revintel_backend-*.whl 2>/dev/null | head -n1)
 if [[ -z "$WHEEL_FILE" ]]; then
-  echo "ERROR: wheel build did not produce backend/dist/revintel_backend-*.whl" >&2
+  echo "ERROR: no wheel found and no Python venv to build one." >&2
+  echo "       Either: 'git pull' to refresh releases/, OR run 'make setup && make wheel'." >&2
   exit 1
 fi
 echo "==> Wheel: $(basename "$WHEEL_FILE")"
