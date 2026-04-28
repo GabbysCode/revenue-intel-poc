@@ -13,8 +13,12 @@ exports, and finance reports.
 | AI | Databricks Genie Spaces API (chat), Tellr `ai-slide-generator` MCP (deck export) |
 | Data | DuckDB-backed synthetic dataset, optionally mirrored into Unity Catalog |
 
-> **Looking to get up and running?** See [`QUICKSTART.md`](QUICKSTART.md) for a
-> 5-minute setup including Genie + Tellr wiring.
+> **Local-only setup?** See [`QUICKSTART.md`](QUICKSTART.md) for a 5-minute
+> path including Genie + Tellr wiring.
+>
+> **Deploying to Databricks Apps?** See [`DEPLOY.md`](DEPLOY.md) — covers
+> the workspace decision (Pattern A vs Pattern C), service-principal setup,
+> the `databricks/deploy.sh` helper, and post-deploy smoke tests.
 
 ---
 
@@ -67,9 +71,15 @@ the chat still runs — it just stays in local-only mode.
 The dashboard's **Export to Presentation** button creates an executive
 deck via the Tellr `ai-slide-generator` Databricks App, polls until
 ready, and returns a PDF render of the deck (`html_document` →
-`xhtml2pdf` with a ReportLab fallback). Authentication is OAuth U2M;
-see [`QUICKSTART.md`](QUICKSTART.md#tellr-deck-export) for the token
-flow and the most common `401 Unauthorized` fix.
+`xhtml2pdf` with a ReportLab fallback). Three auth patterns are supported:
+
+- **Pattern A** — same-workspace Databricks App; the Apps proxy injects
+  the user's identity (no token needed). Used in production deploys.
+- **Pattern C** — cross-workspace deploys; service-principal OAuth M2M
+  with auto-refresh. See [`DEPLOY.md`](DEPLOY.md).
+- **Pattern B** — local dev only; static OAuth U2M token in
+  `DATABRICKS_OAUTH_TOKEN`. See
+  [`QUICKSTART.md`](QUICKSTART.md#tellr-deck-export).
 
 ### Personas
 
@@ -102,7 +112,7 @@ revintel-poc/
 │   ├── services/
 │   │   ├── kpi_local_engine.py    # deterministic local KPI SQL
 │   │   ├── genie_engine.py        # Databricks Genie client (with local fallback)
-│   │   ├── tellr_mcp.py           # Tellr MCP client (Pattern A + Pattern B auth)
+│   │   ├── tellr_mcp.py           # Tellr MCP client (Patterns A / B / C)
 │   │   └── persona_scope.py       # row-level region scoping per persona
 │   ├── middleware/
 │   │   └── persona_middleware.py  # injects persona state from cookie / header
@@ -110,11 +120,13 @@ revintel-poc/
 │   │   └── generate.py            # generates the 30k-row demo dataset
 │   ├── db/
 │   │   └── connection.py          # DuckDB connection + view DDL
+│   ├── app.yaml                   # Databricks Apps spec (uvicorn entrypoint + env stubs)
 │   └── data/                      # DuckDB file (gitignored)
 ├── frontend/
 │   ├── package.json
 │   ├── next.config.js             # /api/* proxy → BACKEND_UPSTREAM
 │   ├── .env.example               # copy to .env.local (optional)
+│   ├── app.yaml                   # Databricks Apps spec (next build + start)
 │   └── src/
 │       ├── app/                   # Next.js App Router pages
 │       │   ├── page.tsx           # dashboard (4 live KPIs + 4 placeholders)
@@ -131,11 +143,13 @@ revintel-poc/
 │           ├── personas.ts        # persona definitions + GENIE_ROOM_URL
 │           ├── apiFetch.ts        # fetch helper that forwards persona headers
 │           └── filter-state.tsx   # global region / capability / period filter
-└── databricks/
-    ├── genie_examples.md          # SQL + narratives to seed your Genie space
-    ├── seed_unity_catalog.py      # notebook-style script — creates revintel.poc.*
-    ├── upload_to_databricks.py    # one-shot uploader (uses SQL Statement API)
-    └── do_upload.py               # incremental uploader from a local pickle
+├── databricks/
+│   ├── deploy.sh                  # opinionated deploy helper (see DEPLOY.md)
+│   ├── genie_examples.md          # SQL + narratives to seed your Genie space
+│   ├── seed_unity_catalog.py      # notebook-style script — creates revintel.poc.*
+│   ├── upload_to_databricks.py    # one-shot uploader (uses SQL Statement API)
+│   └── do_upload.py               # incremental uploader from a local pickle
+└── DEPLOY.md                      # Databricks Apps deployment guide
 ```
 
 ---
@@ -168,6 +182,18 @@ docker compose up --build
 | `make frontend` | frontend only (`next dev`) |
 | `make seed` | regenerate synthetic data |
 | `make clean` | nuke `.venv`, `node_modules`, `.next`, DuckDB file |
+
+---
+
+## Deploying to Databricks Apps
+
+RevIntel is structured as two Databricks Apps (FastAPI backend + Next.js frontend) so you can host the demo behind your workspace's auth and let it talk directly to Tellr without per-user OAuth tokens.
+
+```bash
+./databricks/deploy.sh <profile>     # imports source, creates apps, deploys both
+```
+
+The deploy flow, the workspace-vs-Tellr decision (Pattern A same-workspace vs Pattern C service-principal), service-principal setup, env / secrets management, and post-deploy smoke tests all live in [`DEPLOY.md`](DEPLOY.md). Read that before your first deploy.
 
 ---
 
@@ -219,8 +245,10 @@ dashboard prompt chips hit cached answers.
 | Frontend pages stuck loading, console shows `ECONNREFUSED 127.0.0.1:8000` | Backend not running — `make backend` |
 | `Bus error: 10` on seed | DuckDB file lock — stop the backend first, then re-seed |
 | Dashboard cards say "KPI unavailable" | Backend started before DuckDB seed completed — restart backend |
-| Tellr export → `401 Unauthorized` | OAuth U2M token expired — re-mint, paste into `.env`, restart backend. Detail in [`QUICKSTART.md`](QUICKSTART.md#tellr-deck-export). |
-| Tellr export → `503 PAT rejected` | You used a `dapi…` PAT; Apps require an OAuth U2M token. |
+| Tellr export → `401 Unauthorized` (local dev) | OAuth U2M token expired — re-mint, paste into `.env`, restart backend. Detail in [`QUICKSTART.md`](QUICKSTART.md#tellr-deck-export). |
+| Tellr export → `401 Unauthorized` (deployed app) | If on Pattern C, the SP secret was rotated; update the Apps secret and re-deploy. The in-process token cache will mint fresh on next call. |
+| Tellr export → `503 PAT rejected` | You used a `dapi…` PAT; Apps require an OAuth U2M token (Pattern B), Pattern A, or Pattern C. |
+| `/api/tellr/health` returns `pattern: "B"` in production | The Apps proxy didn't inject `x-forwarded-email` (so A is unavailable) and SP creds aren't set (so C is unavailable). Wire up Pattern A or C — Pattern B is local-dev-only. |
 | Genie chat answers in "local" mode only | One of `DATABRICKS_HOST` / `DATABRICKS_TOKEN` / `GENIE_SPACE_ID` is missing |
 
 ---

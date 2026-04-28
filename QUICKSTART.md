@@ -126,6 +126,14 @@ Tellr is the [`ai-slide-generator`](https://robertwhiffin.github.io/ai-slide-gen
 Databricks App. RevIntel's **Export to Presentation** button calls its MCP
 endpoint, polls until the deck is ready, and downloads a PDF.
 
+> 🛈 **This whole section is local-dev only.** It walks you through Pattern B
+> (a static OAuth U2M bearer token in `DATABRICKS_OAUTH_TOKEN`), which is the
+> easiest path on a laptop but expires every hour and has no auto-refresh.
+> When you deploy RevIntel as Databricks Apps you switch to Pattern A
+> (same workspace as Tellr, identity injected by the Apps proxy — no token)
+> or Pattern C (cross-workspace deploy, service-principal OAuth M2M with
+> auto-refresh). See [`DEPLOY.md`](DEPLOY.md) for that flow.
+
 ### a. One-time CLI setup
 
 ```bash
@@ -173,6 +181,7 @@ You should see:
   "pattern": "B",
   "base_url_set": true,
   "forwarded_email_present": false,
+  "sp_cache_present": false,
   "bearer_token_present": true
 }
 ```
@@ -199,9 +208,10 @@ lsof -ti:8000 | xargs kill -9
 make backend
 ```
 
-If you'd like the backend to refresh the token automatically, see the
-TODOs in `backend/services/tellr_mcp.py` — the simplest path is to shell
-out to `databricks auth token -p <profile>` lazily on each request.
+If you'd like to skip the manual refresh dance entirely, deploy as
+Databricks Apps and use Pattern A or Pattern C — both handle token
+plumbing for you (Pattern A has no tokens, Pattern C auto-refreshes).
+See [`DEPLOY.md`](DEPLOY.md).
 
 ---
 

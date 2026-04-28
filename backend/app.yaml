@@ -1,0 +1,50 @@
+# Databricks Apps spec for the RevIntel backend (FastAPI + DuckDB).
+#
+# Databricks Apps runs the `command` block in a managed Python runtime
+# (no Dockerfile is executed). $DATABRICKS_APP_PORT is injected by the
+# platform — bind to it and to 0.0.0.0 so the proxy can reach you.
+#
+# Env vars below are deploy-time stubs. Set the real values per workspace
+# with:
+#   databricks apps update revintel-backend \
+#     --json @backend/app-env.<env>.json
+# or via the Apps UI → "Environment variables".
+command:
+  - sh
+  - -c
+  - "pip install --no-cache-dir -r requirements.txt && uvicorn main:app --host 0.0.0.0 --port $DATABRICKS_APP_PORT"
+
+env:
+  # ---------------------------------------------------------------------------
+  # Tellr — REQUIRED to enable the "Export to Presentation" button.
+  # ---------------------------------------------------------------------------
+  - name: TELLR_BASE_URL
+    value: ""
+
+  # Pattern C (cross-workspace deploys only). Leave empty when deploying into
+  # the SAME workspace as Tellr — Pattern A takes over automatically and no
+  # token plumbing is needed.
+  - name: TELLR_SP_CLIENT_ID
+    value: ""
+  - name: TELLR_SP_CLIENT_SECRET
+    value: ""
+  - name: TELLR_WORKSPACE_HOST
+    value: ""
+
+  # ---------------------------------------------------------------------------
+  # Genie — optional. Without it the NLP pane uses the local DuckDB engine.
+  # ---------------------------------------------------------------------------
+  - name: DATABRICKS_HOST
+    value: ""
+  - name: DATABRICKS_TOKEN
+    value: ""
+  - name: GENIE_SPACE_ID
+    value: ""
+
+  # ---------------------------------------------------------------------------
+  # Local-dev-only knobs — leave empty in production.
+  # ---------------------------------------------------------------------------
+  - name: DATABRICKS_OAUTH_TOKEN
+    value: ""
+  - name: SIMULATE_PATTERN_A
+    value: "false"

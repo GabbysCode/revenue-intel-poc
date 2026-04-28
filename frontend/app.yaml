@@ -1,0 +1,28 @@
+# Databricks Apps spec for the RevIntel frontend (Next.js 14, App Router).
+#
+# Build then serve in prod mode. $DATABRICKS_APP_PORT is injected by the
+# platform; bind to it and to 0.0.0.0 so the proxy can reach you. The
+# build step happens at app start because Databricks Apps doesn't have a
+# separate build phase — it's slow on first deploy but cached after.
+command:
+  - sh
+  - -c
+  - "npm ci && npm run build && npm start -- -p $DATABRICKS_APP_PORT -H 0.0.0.0"
+
+env:
+  # ---------------------------------------------------------------------------
+  # REQUIRED — the backend Databricks App's HTTPS URL. Without this Next's
+  # `/api/*` rewrite proxies to localhost (default in next.config.js) and
+  # every API call returns 502.
+  # Format: https://revintel-backend-<workspace-id>.<region>.databricksapps.com
+  # ---------------------------------------------------------------------------
+  - name: BACKEND_UPSTREAM
+    value: ""
+
+  # ---------------------------------------------------------------------------
+  # Optional polish — see frontend/.env.example for full descriptions.
+  # ---------------------------------------------------------------------------
+  - name: NEXT_PUBLIC_GENIE_ROOM_URL
+    value: ""
+  - name: NEXT_PUBLIC_DEMO_ACCESS_CODE
+    value: ""

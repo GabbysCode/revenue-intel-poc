@@ -23,13 +23,21 @@ app = FastAPI(
 )
 
 # CORS (inner) then Persona (outer) — Starlette `add_middleware` order: last registered wraps first.
+# In the deployed two-app topology the browser talks only to the frontend's
+# origin (its `*.databricksapps.com` host) and the frontend's Node process
+# proxies `/api/*` to the backend, so CORS isn't actually triggered for the
+# happy path. We still allow the apps regex so direct browser calls
+# (e.g. file downloads) and ad-hoc curl from a developer's machine work.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "http://localhost:3000",
         "http://127.0.0.1:3000",
     ],
-    allow_origin_regex=r"https?://(localhost|127\.0\.0\.1|192\.168\.\d{1,3}\.\d{1,3})(:\d+)?$",
+    allow_origin_regex=(
+        r"https?://(localhost|127\.0\.0\.1|192\.168\.\d{1,3}\.\d{1,3})(:\d+)?$"
+        r"|https://[a-z0-9-]+\.databricksapps\.com"
+    ),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
