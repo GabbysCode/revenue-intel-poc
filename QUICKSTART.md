@@ -23,6 +23,10 @@ Install Databricks CLI:
 brew tap databricks/tap && brew install databricks
 ```
 
+> **No Homebrew, no PowerShell 7+, or otherwise locked-down laptop?**
+> Skip ahead to [Locked-down laptops](#locked-down-laptops) for no-admin
+> install paths and a fully Docker-only route.
+
 ---
 
 ## 1. Configure Databricks (skip for offline-only)
@@ -248,3 +252,94 @@ curl -s -X POST http://localhost:8000/api/nlp/chat \
 ```
 
 If all four pass, you're done.
+
+---
+
+## Locked-down laptops
+
+You don't need Homebrew, PowerShell 7+, or admin rights to run RevIntel.
+Pick the row that matches what your laptop won't let you do.
+
+### macOS without Homebrew
+
+| Tool | No-Homebrew install |
+|------|---------------------|
+| **Python 3.11** | Official `.pkg` installer from <https://www.python.org/downloads/macos/> — no admin needed when installed for the current user. |
+| **Node.js / npm** | `nvm` is a pure shell script that installs into `~/.nvm` (no sudo): `curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh \| bash && nvm install 18` |
+| **Databricks CLI** | The official static-binary script (Homebrew is just one option): `curl -fsSL https://raw.githubusercontent.com/databricks/setup-cli/main/install.sh \| sh` — pass `-b ~/bin` for a userland install. |
+| **`jq`** | Static binary download: `curl -L -o ~/bin/jq https://github.com/jqlang/jq/releases/latest/download/jq-macos-arm64 && chmod +x ~/bin/jq` (use `jq-macos-amd64` on Intel). |
+| **`make`** | Comes with Xcode Command Line Tools: `xcode-select --install` (single GUI prompt, no Apple ID needed). |
+
+### Windows on Windows PowerShell 5.1 (no PS 7+)
+
+The QUICKSTART commands are bash-shaped, so the cleanest fix is to **stop
+using PowerShell entirely**.
+
+**Best option — Git Bash** (ships with Git for Windows, no admin):
+
+Download from <https://git-scm.com/download/win>, then run every command
+in this guide from the Git Bash prompt — `curl`, `kill`, `make`
+substitutions below, etc. all work as-is.
+
+**If even Git Bash is blocked**, use the native Windows installers:
+
+| Tool | Native Windows install |
+|------|------------------------|
+| **Python 3.11** | `.exe` installer from <https://www.python.org/downloads/windows/>. Pick "Install for me only" — no admin needed. |
+| **Node.js** | `.msi` installer from <https://nodejs.org/en/download> (user-scope install). |
+| **Databricks CLI** | Download `databricks_cli_*_windows_amd64.zip` from <https://github.com/databricks/cli/releases>, unzip into `%USERPROFILE%\bin`, add that folder to your `Path`. |
+| **`jq`** | Grab `jq-windows-amd64.exe` from <https://github.com/jqlang/jq/releases>, rename to `jq.exe`, drop on your `Path`. |
+| **`make`** | Skip it — see the [`make`-free commands](#make-free-equivalents) below. |
+
+### `jq`-free alternative (works everywhere)
+
+Wherever this guide says `… | jq -r .access_token`, swap in this Python
+one-liner — Python is already a prereq:
+
+```bash
+databricks auth token -p tellr | python -c "import json,sys;print(json.load(sys.stdin)['access_token'])"
+```
+
+### `make`-free equivalents
+
+The Makefile is convenience wrappers around three things. Direct
+equivalents:
+
+```bash
+# instead of `make setup`
+python3.11 -m venv backend/.venv
+backend/.venv/bin/pip install --upgrade pip
+backend/.venv/bin/pip install -r backend/requirements.txt
+cd frontend && npm install && cd ..
+backend/.venv/bin/python -c "import sys; sys.path.insert(0,'backend'); from db.connection import init_db; init_db()"
+
+# instead of `make dev` — open two terminals
+# terminal 1
+cd backend && ../backend/.venv/bin/uvicorn main:app --reload --port 8000
+# terminal 2
+cd frontend && npx next dev
+```
+
+On Windows replace `backend/.venv/bin/...` with `backend\.venv\Scripts\...`.
+
+### "Skip the install entirely" — Docker-only route
+
+If your laptop **can run Docker Desktop** (or [Rancher Desktop](https://rancherdesktop.io/)
+or [Podman Desktop](https://podman-desktop.io/) — both free and side-step
+the Docker license question), you can run the entire app with **zero
+local Python or Node**:
+
+```bash
+git clone https://github.com/GabbysCode/revenue-intel-poc.git
+cd revenue-intel-poc
+cp backend/.env.example backend/.env       # fill in your values
+docker compose up --build
+```
+
+The repo's `docker-compose.yml` builds the backend (Python 3.11) and
+frontend (Node) images and wires them together — only Docker is needed
+on the host. Open <http://localhost:3000>.
+
+If even Docker is off-limits, **GitHub Codespaces** or any **VS Code
+Dev Container** runs the whole stack in a browser tab on someone else's
+machine — no local install at all.
