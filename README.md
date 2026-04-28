@@ -86,42 +86,51 @@ ready, and returns a PDF render of the deck (`html_document` →
 Six demo personas (CFO, FD, Service Line Lead, FP&A Analyst, Data
 Steward, Exec Sponsor) selectable on `/login`. Each persona has a
 default region and a permission scope enforced by
-`backend/middleware/persona_middleware.py` and
-`backend/services/persona_scope.py`.
+`revintel_backend.middleware.persona_middleware` and
+`revintel_backend.services.persona_scope`.
 
 ---
 
 ## Project layout
 
+The backend ships as an installable Python package (`revintel-backend`)
+under a PEP 621 `src/` layout, so it builds to a single wheel that any
+runtime — local Python, Docker, Databricks Apps — can `pip install`.
+
 ```
 revintel-poc/
 ├── README.md                      # this file
 ├── QUICKSTART.md                  # 5-min setup + Genie + Tellr wiring
-├── Makefile                       # make setup / make dev
+├── DEPLOY.md                      # Databricks Apps deployment guide
+├── Makefile                       # make setup / make dev / make wheel
 ├── docker-compose.yml             # docker compose up
 ├── backend/
-│   ├── main.py                    # FastAPI app, lifespan, middleware, routers
-│   ├── requirements.txt
+│   ├── pyproject.toml             # PEP 621 metadata + pinned deps
+│   ├── requirements.txt           # back-compat shim → pip install -e .
 │   ├── .env.example               # copy to .env
-│   ├── routers/
-│   │   ├── kpis.py                # /api/kpis/summary, /api/kpis/{id}
-│   │   ├── data.py                # /api/data/* (catalog metadata for the chat)
-│   │   ├── nlp.py                 # /api/nlp/* (Genie chat)
-│   │   ├── tellr.py               # /api/tellr/* (deck create / status / pdf)
-│   │   └── dashboard.py           # legacy endpoints kept for back-compat
-│   ├── services/
-│   │   ├── kpi_local_engine.py    # deterministic local KPI SQL
-│   │   ├── genie_engine.py        # Databricks Genie client (with local fallback)
-│   │   ├── tellr_mcp.py           # Tellr MCP client (Patterns A / B / C)
-│   │   └── persona_scope.py       # row-level region scoping per persona
-│   ├── middleware/
-│   │   └── persona_middleware.py  # injects persona state from cookie / header
-│   ├── synthetic/
-│   │   └── generate.py            # generates the 30k-row demo dataset
-│   ├── db/
-│   │   └── connection.py          # DuckDB connection + view DDL
-│   ├── app.yaml                   # Databricks Apps spec (uvicorn entrypoint + env stubs)
-│   └── data/                      # DuckDB file (gitignored)
+│   ├── app.yaml                   # Databricks Apps spec (installs wheel)
+│   ├── Dockerfile                 # multi-stage: build wheel → install wheel
+│   ├── dist/                      # built wheels (gitignored, made by `make wheel`)
+│   ├── data/                      # DuckDB file (gitignored)
+│   └── src/revintel_backend/      # the actual package
+│       ├── __init__.py
+│       ├── main.py                # FastAPI app, lifespan, middleware, routers
+│       ├── cli.py                 # `revintel-backend` console entry point
+│       ├── routers/
+│       │   ├── kpis.py            # /api/kpis/summary, /api/kpis/{id}
+│       │   ├── data.py            # /api/data/* (catalog metadata for the chat)
+│       │   ├── nlp.py             # /api/nlp/* (Genie chat)
+│       │   ├── tellr.py           # /api/tellr/* (deck create / status / pdf)
+│       │   └── dashboard.py       # legacy endpoints kept for back-compat
+│       ├── services/
+│       │   ├── kpi_local_engine.py
+│       │   ├── genie_engine.py    # Databricks Genie client (local fallback)
+│       │   ├── tellr_mcp.py       # Tellr MCP client (Patterns A / B / C)
+│       │   └── persona_scope.py
+│       ├── middleware/persona_middleware.py
+│       ├── db/connection.py       # DuckDB connection + view DDL
+│       ├── models/schemas.py
+│       └── synthetic/generate.py
 ├── frontend/
 │   ├── package.json
 │   ├── next.config.js             # /api/* proxy → BACKEND_UPSTREAM
@@ -181,7 +190,8 @@ docker compose up --build
 | `make backend` | backend only (`uvicorn main:app --reload --port 8000`) |
 | `make frontend` | frontend only (`next dev`) |
 | `make seed` | regenerate synthetic data |
-| `make clean` | nuke `.venv`, `node_modules`, `.next`, DuckDB file |
+| `make wheel` | build `backend/dist/revintel_backend-<ver>-py3-none-any.whl` |
+| `make clean` | nuke `.venv`, `node_modules`, `.next`, `dist/`, DuckDB file |
 
 ---
 
@@ -189,11 +199,18 @@ docker compose up --build
 
 RevIntel is structured as two Databricks Apps (FastAPI backend + Next.js frontend) so you can host the demo behind your workspace's auth and let it talk directly to Tellr without per-user OAuth tokens.
 
+The backend is shipped as a **pre-built wheel**, so the deploy is just:
+
 ```bash
-./databricks/deploy.sh <profile>     # imports source, creates apps, deploys both
+make wheel                         # builds backend/dist/revintel_backend-*.whl
+./databricks/deploy.sh <profile>   # ships wheel + app.yaml, deploys both apps
 ```
 
-The deploy flow, the workspace-vs-Tellr decision (Pattern A same-workspace vs Pattern C service-principal), service-principal setup, env / secrets management, and post-deploy smoke tests all live in [`DEPLOY.md`](DEPLOY.md). Read that before your first deploy.
+`deploy.sh` builds the wheel itself before importing, so the `make wheel` step is optional but useful for catching build errors locally first.
+
+Why a wheel? Cold-start time on Databricks Apps drops from a `pip install -r requirements.txt` (resolves and downloads ~12 packages) to `pip install <single-wheel>` (one cached resolution), and the deployed bytes are identical to whatever `make wheel` produced on your laptop — no editable-install drift.
+
+The full deploy flow, workspace-vs-Tellr decision (Pattern A same-workspace vs Pattern C service-principal), service-principal setup, env / secrets management, and post-deploy smoke tests all live in [`DEPLOY.md`](DEPLOY.md). Read that before your first deploy.
 
 ---
 
@@ -240,7 +257,9 @@ dashboard prompt chips hit cached answers.
 
 | Symptom | Likely cause / fix |
 |---------|--------------------|
-| `python3.11: command not found` | `brew install python@3.11` |
+| `python3.11: command not found` | `brew install python@3.11` (the wheel needs Python ≥ 3.11) |
+| `make wheel` fails with `ModuleNotFoundError: build` | `backend/.venv/bin/pip install build` then re-run, or use the offline path `pip wheel . --no-deps --no-build-isolation -w dist` from `backend/`. |
+| `revintel-backend: command not found` after install | The wheel installed but the venv's `bin/` isn't on `$PATH`. Use `<venv>/bin/revintel-backend` directly, or `python -m revintel_backend.cli`. |
 | Port 8000 / 3000 already in use | `lsof -ti:8000 \| xargs kill -9` (same for 3000) |
 | Frontend pages stuck loading, console shows `ECONNREFUSED 127.0.0.1:8000` | Backend not running — `make backend` |
 | `Bus error: 10` on seed | DuckDB file lock — stop the backend first, then re-seed |

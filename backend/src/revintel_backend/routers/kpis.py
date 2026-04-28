@@ -16,8 +16,8 @@ from typing import Any, Literal, Optional
 
 from fastapi import APIRouter, HTTPException, Query, Request
 
-from db.connection import query
-from services.persona_scope import context_meta, effective_region
+from ..db.connection import query
+from ..services.persona_scope import context_meta, effective_region
 
 router = APIRouter()
 

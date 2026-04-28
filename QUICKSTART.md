@@ -84,15 +84,35 @@ cd revenue-intel-poc
 cp backend/.env.example backend/.env       # fill this in next
 cp frontend/.env.example frontend/.env.local   # optional
 
-make setup        # creates backend/.venv, installs deps, seeds DuckDB
-make dev          # backend on :8000, frontend on :3000
+make setup        # creates backend/.venv, installs the backend wheel in
+                  # editable mode, installs npm deps, seeds DuckDB
+make dev          # backend on :8000 (via the `revintel-backend` entry
+                  # point), frontend on :3000
 ```
+
+> The backend is now an installable Python package (`revintel-backend`).
+> `make setup` runs `pip install -e backend`, which means edits in
+> `backend/src/revintel_backend/` show up live without rebuilding the
+> wheel — same fast inner loop, but `make dev` exercises the same console
+> entry point that ships in the deployed Databricks App.
 
 Open <http://localhost:3000>.
 
 > The dashboard works fully offline — the four headline KPIs, drill-downs
 > and prompt chips all run against the local DuckDB seed. Genie + Tellr
 > only kick in once you fill in `backend/.env`.
+
+### 2a. (Optional) Build the wheel for deployment
+
+```bash
+make wheel
+# → backend/dist/revintel_backend-0.1.0-py3-none-any.whl
+```
+
+The wheel is what ships to Databricks Apps via `databricks/deploy.sh` —
+see [`DEPLOY.md`](DEPLOY.md). Building it locally first is a useful smoke
+test that the package metadata, dependencies, and entry point all resolve
+cleanly. You don't need to build it for local dev.
 
 ---
 

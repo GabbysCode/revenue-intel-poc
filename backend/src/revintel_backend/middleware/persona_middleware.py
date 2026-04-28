@@ -3,7 +3,7 @@ import os
 from starlette.datastructures import MutableHeaders
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from services.persona_scope import normalize_persona
+from ..services.persona_scope import normalize_persona
 
 
 # Local dev flag — when set, we inject `x-forwarded-email` so the Tellr router

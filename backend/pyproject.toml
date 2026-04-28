@@ -1,0 +1,51 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "revintel-backend"
+version = "0.1.0"
+description = "RevIntel — Revenue Intelligence POC backend (FastAPI + DuckDB + Databricks Genie + Tellr MCP)"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "Proprietary" }
+authors = [
+    { name = "RevIntel" }
+]
+keywords = ["revenue-intelligence", "databricks", "genie", "tellr", "fastapi"]
+
+# Pinned to match the previous backend/requirements.txt — bump deliberately.
+dependencies = [
+    "fastapi==0.115.6",
+    "uvicorn[standard]==0.34.0",
+    "pandas==2.2.3",
+    "numpy==1.26.4",
+    "faker==33.1.0",
+    "duckdb==1.1.3",
+    "pydantic==2.10.4",
+    "python-dotenv==1.0.1",
+    "databricks-sdk==0.38.0",
+    "httpx==0.28.1",
+    "xhtml2pdf==0.2.15",
+    "reportlab==4.0.4",
+]
+
+[project.optional-dependencies]
+# `pip install '.[dev]'` for local hacking
+dev = [
+    "ruff>=0.6",
+]
+
+[project.scripts]
+# `revintel-backend` runs uvicorn against the FastAPI app, honouring
+# $DATABRICKS_APP_PORT (Databricks Apps) → $PORT → 8000 in that order.
+revintel-backend = "revintel_backend.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["revintel_backend*"]
+
+[tool.setuptools.package-data]
+# Ship any non-Python assets that ever land alongside the source (SQL files,
+# JSON fixtures, etc.). Keeps wheel builds future-proof.
+"revintel_backend" = ["py.typed", "**/*.sql", "**/*.json"]

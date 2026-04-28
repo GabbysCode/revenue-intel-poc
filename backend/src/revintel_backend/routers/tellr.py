@@ -14,8 +14,8 @@ from fastapi import APIRouter, HTTPException, Query, Request, Response
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
-from services.persona_scope import effective_region
-from services.tellr_mcp import (
+from ..services.persona_scope import effective_region
+from ..services.tellr_mcp import (
     TellrAuthContext,
     build_executive_deck_prompt,
     create_deck_start,

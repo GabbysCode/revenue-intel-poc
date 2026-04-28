@@ -2,9 +2,9 @@ from typing import Literal
 
 from fastapi import APIRouter, Query, Request
 
-from models.schemas import NLPQueryRequest, ExecSummaryRequest
-from services.genie_engine import ask_genie, generate_executive_summary
-from services.persona_scope import effective_region
+from ..models.schemas import NLPQueryRequest, ExecSummaryRequest
+from ..services.genie_engine import ask_genie, generate_executive_summary
+from ..services.persona_scope import effective_region
 
 router = APIRouter()
 

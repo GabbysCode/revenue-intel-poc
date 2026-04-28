@@ -70,7 +70,7 @@ async def ask_genie(question: str, region: Optional[str] = None) -> dict:
     """
     # Local engine first — deterministic, schema-aware, fast.
     try:
-        from services.kpi_local_engine import answer_locally
+        from .kpi_local_engine import answer_locally
         local = answer_locally(question, region=region)
         if local is not None:
             return local
@@ -224,7 +224,7 @@ def _mock_genie_response(question: str, region: Optional[str] = None) -> dict:
     that map cleanly to one KPI, so the highlight inference picks the
     right tab.
     """
-    from db.connection import query as db_query
+    from ..db.connection import query as db_query
 
     rf = f"AND region_id = '{region}'" if region else ""
     q_lower = question.lower()
@@ -368,7 +368,7 @@ def _mock_genie_response(question: str, region: Optional[str] = None) -> dict:
 
 
 def _mock_executive_summary(period_start: str, period_end: str, region: str = None) -> dict:
-    from db.connection import query as db_query
+    from ..db.connection import query as db_query
 
     region_filter = f"AND region_id = '{region}'" if region else ""
     df = db_query(f"""

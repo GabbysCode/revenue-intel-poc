@@ -1,7 +1,8 @@
 from fastapi import APIRouter, Query, Request
-from db.connection import query
 from typing import Optional
-from services.persona_scope import effective_region, context_meta
+
+from ..db.connection import query
+from ..services.persona_scope import effective_region, context_meta
 
 router = APIRouter()
 

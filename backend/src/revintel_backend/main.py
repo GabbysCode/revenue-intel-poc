@@ -5,9 +5,9 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from middleware.persona_middleware import PersonaStateMiddleware
-from db.connection import init_db
-from routers import dashboard, nlp, tellr, kpis, data
+from .middleware.persona_middleware import PersonaStateMiddleware
+from .db.connection import init_db
+from .routers import dashboard, nlp, tellr, kpis, data
 
 
 @asynccontextmanager

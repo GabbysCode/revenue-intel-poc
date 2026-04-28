@@ -69,12 +69,13 @@ This step lives in the **Tellr workspace** (not the RevIntel workspace), and nee
 
 The script:
 
-1. `databricks workspace import-dir backend  → /Workspace/Users/<me>/revintel/backend`
-2. `databricks workspace import-dir frontend → /Workspace/Users/<me>/revintel/frontend`
-3. Creates both apps if they don't exist.
-4. Deploys the backend.
-5. Reads the backend's URL via `databricks apps get` and writes it into `BACKEND_UPSTREAM` on the frontend.
-6. Deploys the frontend.
+1. **Builds the backend wheel** (`backend/dist/revintel_backend-<ver>-py3-none-any.whl`).
+2. Imports a slim deploy bundle (`app.yaml` + `dist/`) → `/Workspace/Users/<me>/revintel/backend`. The raw `src/` tree is **not** uploaded — the wheel contains everything the runtime needs.
+3. Imports `frontend/` → `/Workspace/Users/<me>/revintel/frontend`.
+4. Creates both apps if they don't exist.
+5. Deploys the backend.
+6. Reads the backend's URL via `databricks apps get` and writes it into `BACKEND_UPSTREAM` on the frontend.
+7. Deploys the frontend.
 
 It does **not** set Tellr or Genie env vars — those live outside source control.
 
@@ -83,8 +84,12 @@ It does **not** set Tellr or Genie env vars — those live outside source contro
 If `deploy.sh` doesn't fit your workflow:
 
 ```bash
-# Backend
-databricks workspace import-dir backend /Workspace/Users/$USER/revintel/backend --overwrite -p $PROFILE
+# Backend — build the wheel and ship just the wheel + app.yaml
+make wheel
+STAGE=$(mktemp -d) && mkdir -p "$STAGE/dist"
+cp backend/app.yaml          "$STAGE/"
+cp backend/dist/*.whl        "$STAGE/dist/"
+databricks workspace import-dir "$STAGE" /Workspace/Users/$USER/revintel/backend --overwrite -p $PROFILE
 databricks apps create --json '{"name":"revintel-backend"}' -p $PROFILE
 databricks apps deploy revintel-backend --source-code-path /Workspace/Users/$USER/revintel/backend -p $PROFILE
 
@@ -188,7 +193,8 @@ If you ever rotate the SP secret, just update the Apps secret and re-deploy — 
 
 ## 8. Known gotchas
 
-- **DuckDB is ephemeral.** `init_db()` re-seeds on missing `fact_revenue`, and synthetic data regenerates in seconds, so this is fine for the demo. If you ever need persistence across container restarts, switch to Lakebase or mount a UC volume — that's a separate effort.
+- **DuckDB is ephemeral.** `init_db()` re-seeds on missing `fact_revenue`, and synthetic data regenerates in seconds, so this is fine for the demo. The seed file lives at `<cwd>/data/revintel.duckdb` by default — override with `REVINTEL_DB_PATH` in the backend app's env if you want it elsewhere (e.g. `/tmp/revintel/revintel.duckdb`). If you ever need persistence across container restarts, switch to Lakebase or mount a UC volume.
+- **Backend cold start is fast** because the deployed `app.yaml` does `pip install dist/revintel_backend-*.whl` (one wheel, all deps pinned in metadata) instead of `pip install -r requirements.txt` (resolves and downloads every dep). The wheel is built locally before each deploy, so the deployed bytes are identical to whatever you tested.
 - **Frontend build runs at app start.** First deploy is slow (≈90s for `npm ci && npm run build`); subsequent deploys reuse the layer cache. If you want a faster first deploy, switch to a Dockerfile-based deploy and pre-build the image.
 - **Genie still uses PATs.** Apps reject PATs but the Genie REST API doesn't, so `DATABRICKS_TOKEN=dapi...` is fine for the NLP pane. If you want SP-only, swap `genie_engine.py` to mint OAuth tokens via the same `TellrSPTokenCache` shape — out of scope for this PR.
 - **Persona picker stays on `/login`.** Even with Pattern A's `x-forwarded-email` available, we deliberately do not auto-select a persona — the picker is part of the demo affordance.

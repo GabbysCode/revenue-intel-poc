@@ -23,7 +23,7 @@ from __future__ import annotations
 import re
 from typing import Any, Optional
 
-from db.connection import query as db_query
+from ..db.connection import query as db_query
 
 # ---------------------------------------------------------------------------
 # KPI metadata

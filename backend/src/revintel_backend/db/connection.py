@@ -1,7 +1,21 @@
 import duckdb
 import os
 
-DB_PATH = os.path.join(os.path.dirname(__file__), "..", "data", "revintel.duckdb")
+# Resolve DuckDB file location at import time so log messages show the
+# real path. Order: explicit override → cwd/data/ (matches local-dev
+# behaviour when launched from `backend/`) → /tmp fallback.
+#
+# Wheels installed into site-packages MUST NOT write next to their own
+# code, so anchoring to `__file__` is wrong post-install — we anchor to
+# cwd or an explicit env var instead.
+def _resolve_db_path() -> str:
+    explicit = os.environ.get("REVINTEL_DB_PATH", "").strip()
+    if explicit:
+        return explicit
+    return os.path.join(os.getcwd(), "data", "revintel.duckdb")
+
+
+DB_PATH = _resolve_db_path()
 
 _conn: duckdb.DuckDBPyConnection | None = None
 
@@ -89,8 +103,8 @@ def init_db() -> None:
         ).fetchall()
         table_names = [t[0] for t in tables]
         if "fact_revenue" not in table_names:
-            from synthetic.generate import generate_all
-            from synthetic.seed import seed_database
+            from ..synthetic.generate import generate_all
+            from ..synthetic.seed import seed_database
 
             data = generate_all()
             seed_database(conn, data)

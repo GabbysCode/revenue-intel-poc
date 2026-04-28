@@ -49,6 +49,27 @@ done
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
 
+# -----------------------------------------------------------------------------
+# 0. Build the backend wheel so `databricks workspace import-dir backend`
+#    picks it up under backend/dist/. This keeps the deployed install fast
+#    (one pinned wheel) and reproducible (same artifact you tested locally).
+# -----------------------------------------------------------------------------
+if [[ ! -x "${REPO_ROOT}/backend/.venv/bin/python" ]]; then
+  echo "ERROR: backend/.venv not found. Run 'make setup' first so we can build the wheel." >&2
+  exit 1
+fi
+
+echo "==> Building revintel-backend wheel"
+"${REPO_ROOT}/backend/.venv/bin/pip" install --upgrade build >/dev/null
+rm -rf "${REPO_ROOT}/backend/dist" "${REPO_ROOT}/backend/build" "${REPO_ROOT}/backend/src"/*.egg-info
+( cd "${REPO_ROOT}/backend" && "${REPO_ROOT}/backend/.venv/bin/python" -m build --wheel --outdir dist >/dev/null )
+WHEEL_FILE=$(ls -1 "${REPO_ROOT}/backend/dist"/revintel_backend-*.whl 2>/dev/null | head -n1)
+if [[ -z "$WHEEL_FILE" ]]; then
+  echo "ERROR: wheel build did not produce backend/dist/revintel_backend-*.whl" >&2
+  exit 1
+fi
+echo "==> Wheel: $(basename "$WHEEL_FILE")"
+
 ME=$(databricks current-user me -p "$PROFILE" -o json | jq -r '.userName')
 if [[ -z "$ME" || "$ME" == "null" ]]; then
   echo "Could not resolve current user from profile '$PROFILE'. Run 'databricks auth login -p $PROFILE' first." >&2
@@ -69,11 +90,16 @@ echo
 # -----------------------------------------------------------------------------
 # 1. Sync source into the workspace
 # -----------------------------------------------------------------------------
-echo "==> Importing backend source -> $BACKEND_WS"
-databricks workspace import-dir backend "$BACKEND_WS" \
-  --overwrite \
-  --exclude-from <(printf '%s\n' '.venv/' '__pycache__/' '*.pyc' 'data/*.duckdb' '.env' '.pytest_cache/') \
-  -p "$PROFILE"
+echo "==> Importing backend deploy bundle (app.yaml + wheel) -> $BACKEND_WS"
+# Stage just the bits Databricks Apps needs: the spec + the wheel. Everything
+# else (src/, .venv/, raw requirements.txt, local .duckdb) is build-time only
+# and would just bloat the workspace upload.
+BACKEND_STAGE=$(mktemp -d)
+trap 'rm -rf "$BACKEND_STAGE"' EXIT
+mkdir -p "${BACKEND_STAGE}/dist"
+cp "${REPO_ROOT}/backend/app.yaml" "${BACKEND_STAGE}/app.yaml"
+cp "$WHEEL_FILE"                  "${BACKEND_STAGE}/dist/"
+databricks workspace import-dir "$BACKEND_STAGE" "$BACKEND_WS" --overwrite -p "$PROFILE"
 
 echo "==> Importing frontend source -> $FRONTEND_WS"
 databricks workspace import-dir frontend "$FRONTEND_WS" \
