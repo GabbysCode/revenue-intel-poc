@@ -19,6 +19,11 @@ exports, and finance reports.
 > **Deploying to Databricks Apps?** See [`DEPLOY.md`](DEPLOY.md) — covers
 > the workspace decision (Pattern A vs Pattern C), service-principal setup,
 > the `databricks/deploy.sh` helper, and post-deploy smoke tests.
+>
+> **Locked-down laptop (no `make` / `jq` / `brew`)?** See
+> [`DEPLOY_OPTION_A.md`](DEPLOY_OPTION_A.md) — fully manual Pattern A
+> (same-workspace) deploy using only Python, Node, Git, and the
+> Databricks CLI, with macOS / Linux / Windows command variants.
 
 ---
 
