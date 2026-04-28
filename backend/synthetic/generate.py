@@ -53,6 +53,22 @@ SEASONAL_FACTORS = {
 REGION_WEIGHTS = {"R001": 0.40, "R002": 0.25, "R003": 0.15, "R004": 0.20}
 SL_BASE_REVENUE = {"SL01": 5000, "SL02": 4000, "SL03": 3500, "SL04": 4500, "SL05": 2500, "SL06": 3000}
 
+# Capability hourly rates (£/hr) — used to derive chargeable_hours from booked revenue.
+# Anchored to KPMG-style senior consultant economics; budget twin sits ~2% above target.
+RATE_BY_SL = {
+    "SL01": 350.0,  # Audit & Assurance
+    "SL02": 380.0,  # Tax & Legal
+    "SL03": 420.0,  # Advisory
+    "SL04": 360.0,  # Consulting
+    "SL05": 330.0,  # Risk & Compliance
+    "SL06": 290.0,  # Technology
+}
+
+# Multiplicative dip on chargeable_hours for December (month_idx == 11).
+# This is what powers the brief's "why did chargeable hours drop in December?" Genie
+# example — volume-driven (Christmas leave / shorter working month), not rate-driven.
+DECEMBER_HOURS_DIP = 0.88
+
 
 def generate_clients(n=500):
     clients = []
@@ -75,6 +91,7 @@ def generate_revenue(clients_df, start_date="2023-01-01", end_date="2025-12-31")
     rows = []
     for date in dates:
         month_idx = date.month - 1
+        days_in_month = pd.Period(date, freq="M").days_in_month
         for _, client in clients_df.iterrows():
             n_services = np.random.choice([1, 2, 3], p=[0.5, 0.35, 0.15])
             chosen_sls = np.random.choice(SERVICE_LINES, size=n_services, replace=False)
@@ -96,6 +113,30 @@ def generate_revenue(clients_df, start_date="2023-01-01", end_date="2025-12-31")
                 collection_rate = np.clip(np.random.normal(q_center, 0.08), 0.25, 0.95)
                 margin = np.random.uniform(0.15, 0.45)
 
+                billed_amount = booked * billing_lag
+                wip_balance = booked * (1 - billing_lag)
+
+                # KPI derivations — these are the four exec KPIs the dashboard tracks.
+                # Hours come from booked / target_rate so revenue and hours stay
+                # consistent. December gets a volume-only haircut (rate held flat)
+                # so Genie can answer "why did chargeable hours drop in Dec?" with
+                # "lower volume, not rate compression" — see DECEMBER_HOURS_DIP.
+                target_rate = RATE_BY_SL[sl_id] * (1 + (date.year - 2023) * 0.03)
+                hours_noise = float(np.random.normal(1.0, 0.10))
+                dip = DECEMBER_HOURS_DIP if month_idx == 11 else 1.0
+                chargeable_hours = max(1.0, (booked / target_rate) * hours_noise * dip)
+                hourly_rate = booked / max(chargeable_hours, 1.0)
+                gross_fee_days = chargeable_hours / 7.5
+                daily_rev = max(billed_amount / days_in_month, 1.0)
+                unbilled_days = min(120.0, wip_balance / daily_rev)
+
+                budget_chargeable_hours = (
+                    (booked / target_rate) * float(np.random.normal(1.05, 0.04))
+                )
+                budget_hourly_rate = target_rate * float(np.random.normal(1.02, 0.02))
+                budget_gross_fee_days = budget_chargeable_hours / 7.5
+                budget_unbilled_days = max(5.0, float(np.random.normal(28.0, 4.0)))
+
                 rows.append({
                     "date": date.strftime("%Y-%m-%d"),
                     "client_id": client["client_id"],
@@ -103,11 +144,19 @@ def generate_revenue(clients_df, start_date="2023-01-01", end_date="2025-12-31")
                     "region_id": client["region_id"],
                     "booked_revenue": round(booked, 2),
                     "recognized_revenue": round(booked * recognition_lag, 2),
-                    "billed_amount": round(booked * billing_lag, 2),
-                    "collected_amount": round(booked * billing_lag * collection_rate, 2),
-                    "wip_balance": round(booked * (1 - billing_lag), 2),
-                    "ar_balance": round(booked * billing_lag * (1 - collection_rate), 2),
+                    "billed_amount": round(billed_amount, 2),
+                    "collected_amount": round(billed_amount * collection_rate, 2),
+                    "wip_balance": round(wip_balance, 2),
+                    "ar_balance": round(billed_amount * (1 - collection_rate), 2),
                     "margin_pct": round(margin * 100, 1),
+                    "chargeable_hours": round(chargeable_hours, 1),
+                    "hourly_rate": round(hourly_rate, 2),
+                    "gross_fee_days": round(gross_fee_days, 2),
+                    "unbilled_days": round(unbilled_days, 1),
+                    "budget_chargeable_hours": round(budget_chargeable_hours, 1),
+                    "budget_hourly_rate": round(budget_hourly_rate, 2),
+                    "budget_gross_fee_days": round(budget_gross_fee_days, 2),
+                    "budget_unbilled_days": round(budget_unbilled_days, 1),
                 })
     return pd.DataFrame(rows)
 

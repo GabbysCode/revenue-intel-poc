@@ -1,17 +1,21 @@
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Request
 from db.connection import query
 from typing import Optional
+from services.persona_scope import effective_region, context_meta
 
 router = APIRouter()
 
 
 @router.get("/kpis")
 async def get_kpis(
+    request: Request,
     region: Optional[str] = Query(None),
     period_start: str = Query("2025-01-01"),
     period_end: str = Query("2025-12-31"),
 ):
-    region_filter = f"AND region_id = '{region}'" if region else ""
+    persona = getattr(request.state, "persona", None)
+    eff = effective_region(region, persona)
+    region_filter = f"AND region_id = '{eff}'" if eff else ""
 
     current = query(f"""
         SELECT
@@ -52,6 +56,7 @@ async def get_kpis(
     p = previous.iloc[0]
 
     return {
+        "context": context_meta(request, region, eff),
         "kpis": [
             {"label": "Revenue", "value": round(c["revenue"] or 0, 2), "delta": delta_pct(c["revenue"] or 0, p["revenue"] or 0), "prefix": "$"},
             {"label": "Avg Margin", "value": round(c["avg_margin"] or 0, 1), "delta": delta_pct(c["avg_margin"] or 0, p["avg_margin"] or 0), "suffix": "%"},
@@ -64,16 +69,18 @@ async def get_kpis(
                 (c["collected"] / c["billed"] * 100) if c["billed"] else 0,
                 (p["collected"] / p["billed"] * 100) if p["billed"] else 0,
             ), "suffix": "%"},
-        ]
+        ],
     }
 
 
 @router.get("/revenue-trend")
 async def get_revenue_trend(
+    request: Request,
     granularity: str = Query("month"),
     region: Optional[str] = Query(None),
 ):
-    region_filter = f"AND region_id = '{region}'" if region else ""
+    eff = effective_region(region, getattr(request.state, "persona", None))
+    region_filter = f"AND region_id = '{eff}'" if eff else ""
     df = query(f"""
         SELECT
             date,
@@ -86,6 +93,7 @@ async def get_revenue_trend(
         ORDER BY date
     """)
     return {
+        "context": context_meta(request, region, eff),
         "trend": [
             {
                 "date": row["date"],
@@ -93,17 +101,19 @@ async def get_revenue_trend(
                 "collected": round(row["collected"], 2),
             }
             for _, row in df.iterrows()
-        ]
+        ],
     }
 
 
 @router.get("/attribution")
 async def get_attribution(
+    request: Request,
     period_start: str = Query("2025-01-01"),
     period_end: str = Query("2025-12-31"),
     region: Optional[str] = Query(None),
 ):
-    region_filter = f"AND r.region_id = '{region}'" if region else ""
+    eff = effective_region(region, getattr(request.state, "persona", None))
+    region_filter = f"AND r.region_id = '{eff}'" if eff else ""
     df = query(f"""
         SELECT
             s.name as service_line,
@@ -116,13 +126,14 @@ async def get_attribution(
         GROUP BY s.name
         ORDER BY revenue DESC
     """)
-    total = df["revenue"].sum()
+    total = float(df["revenue"].sum()) if not df.empty else 0.0
     return {
+        "context": context_meta(request, region, eff),
         "attribution": [
             {
                 "service_line": row["service_line"],
-                "revenue": round(row["revenue"], 2),
-                "percentage": round(row["revenue"] / total * 100, 1) if total > 0 else 0,
+                "revenue": round(float(row["revenue"]), 2),
+                "percentage": round(float(row["revenue"]) / total * 100, 1) if total > 0 else 0,
                 "order_count": int(row["order_count"]),
             }
             for _, row in df.iterrows()

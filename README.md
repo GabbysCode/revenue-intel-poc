@@ -1,272 +1,240 @@
-# KPMG Revenue Intel — AI-Enabled Revenue Intelligence Platform
+# RevIntel — Revenue Intelligence POC
 
-A POC prototype demonstrating a unified revenue intelligence platform that replaces fragmented spreadsheets, Salesforce, Oracle, and SAP with a single source of truth for region-wide revenue, billings, and collections.
+A demo platform that pulls four executive KPIs into one place, layers a
+Databricks Genie chat on top, and lets users export the current view to a
+Tellr-generated slide deck. Designed to feel like a single source of truth
+for revenue performance instead of the usual sprawl of spreadsheets, CRM
+exports, and finance reports.
 
-Built on a Databricks Lakehouse architecture with a hybrid forecasting engine, scenario planning, and natural language capabilities.
+| Layer | Stack |
+|-------|-------|
+| Frontend | Next.js 14, React 18, TypeScript, Tailwind, Recharts |
+| Backend | FastAPI (Python 3.11), DuckDB, httpx |
+| AI | Databricks Genie Spaces API (chat), Tellr `ai-slide-generator` MCP (deck export) |
+| Data | DuckDB-backed synthetic dataset, optionally mirrored into Unity Catalog |
 
----
-
-## Prerequisites
-
-| Tool | Version | Check |
-|------|---------|-------|
-| Python | 3.11+ | `python3.11 --version` |
-| Node.js | 18+ | `node --version` |
-| npm | 9+ | `npm --version` |
-| Make | any | `make --version` |
-
-## Quick Start
-
-```bash
-# 1. Clone the repo
-git clone https://github.com/your-org/revintel-poc.git
-cd revintel-poc
-
-# 2. Install all dependencies and seed the database
-make setup
-
-# 3. Start both servers
-make dev
-```
-
-The app will be available at **http://localhost:3000**.
-
-The backend API runs at **http://localhost:8000** (Swagger docs at `/docs`).
-
-### Step-by-step (without Make)
-
-```bash
-# Backend
-cd backend
-python3.11 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-python -c "from db.connection import init_db; init_db()"
-uvicorn main:app --reload --port 8000
-
-# Frontend (in a separate terminal)
-cd frontend
-npm install
-npx next dev
-```
+> **Looking to get up and running?** See [`QUICKSTART.md`](QUICKSTART.md) for a
+> 5-minute setup including Genie + Tellr wiring.
 
 ---
 
-## What the App Does
+## What's in the dashboard
 
-KPMG Revenue Intel provides a unified analytics platform across seven core modules:
+### Headline KPIs (with live data)
 
-### 1. Dashboard (`/`)
-The main landing page with real-time KPIs and revenue analytics.
-- **8 KPI cards** — Revenue, Margin, Billed, Collected, Orders, AR Balance, WIP, Collections Rate — each with period-over-period deltas
-- **Revenue trend chart** — historical revenue vs. collections over time
-- **Attribution pie chart** — revenue breakdown by service line
-- **Live feed panel** — real-time event stream from simulated source systems
-- **Executive summary** — AI-generated narrative of financial performance
-- **Filters** — all data responds to the region dropdown and date range selector in the header
+| KPI | Aggregator | Direction | Detail page |
+|-----|------------|-----------|-------------|
+| Chargeable Hours | `SUM(chargeable_hours)` | higher is better | `/chargeable-hours` |
+| Rate Per Hour | hours-weighted mean of `hourly_rate` | higher is better | `/rate-per-hour` |
+| Gross Fee Days | `SUM(gross_fee_days)` | higher is better | `/gross-fee-days` |
+| Unbilled Days | `AVG(unbilled_days)` | **lower** is better | `/unbilled-days` |
 
-### 2. Live Feed (`/live`)
-Real-time data stream simulating events from Salesforce, Oracle, SAP, and internal systems.
-- Server-Sent Events (SSE) for zero-latency updates
-- Events include bookings, billings, collections, and margin updates
-- Source system status indicators
-- Running totals that accumulate in real time
-- Pulsing "Live" indicator in the header across all pages
+Each card shows the current value, variance vs. budget, variance vs. prior
+year, and a sparkline. Clicking a card opens a drill-down with a trend
+chart, a capability breakdown, and a YTD-vs-budget waterfall.
 
-### 3. Cash Flow (`/cashflow`)
-Billing, collections, and receivables analytics.
-- **Waterfall chart** — tracks revenue through booked → recognized → billed → collected stages
-- **DSO gauge** — Days Sales Outstanding meter with color-coded thresholds
-- **AR aging** — outstanding receivables broken down by service line
+### Reserved KPI tiles (placeholders)
 
-### 4. Forecasting (`/forecasting`)
-AI-powered revenue predictions with actionable recommendations.
-- **Forecast chart** — historical data + predicted revenue with 80% and 95% confidence bands
-- **Hybrid engine** — combines Prophet (trend/seasonality decomposition) with XGBoost (gradient boosting on lag features), weighted 60/40
-- **Recommended actions** — data-driven insights generated from forecast trends, collection rates, margins, pipeline coverage, and service line performance
-- **Model comparison** — MAPE and RMSE accuracy metrics for Prophet, XGBoost, and Hybrid models
-- **Prediction tester** — interactive panel to change horizon (1–24 months), model type, and region; updates the main chart on run
+The dashboard also ships four placeholder tiles ready to be wired up to
+real data sources. They render a dashed "Awaiting data" tile until the
+backend exposes them under `/api/kpis/summary`:
 
-### 5. Scenario Planning (`/scenarios`)
-Monte Carlo simulation and what-if analysis.
-- **5 adjustable parameters** — revenue growth %, DSO change, churn rate, win rate, macro multiplier
-- **1,000-iteration Monte Carlo simulation** producing P10/P50/P90 projections
-- **Fan chart** — visualises the range of outcomes over time
-- **Sensitivity tornado** — shows which parameter has the most impact on results
-- **Summary stats** — base total, expected delta, cash flow projection, average margin
+- **Sales Forecast** — pipeline / commit / best-case vs. quota
+- **Chargeability** — billable hours as a % of available hours
+- **Delivery Financials** — engagement-level margin, WIP, recoverability
+- **Staff Attrition** — rolling 12-month voluntary leaver rate
 
-### 6. Time Travel (`/time-travel`)
-Delta Lake-style data versioning to compare historical snapshots.
-- **Version timeline** — three versions representing different business events:
-  - v1 "Q2 Close" — baseline ($111.8M)
-  - v2 "Q3 Restatement" — audit corrections, EMEA ramp (+0.6%)
-  - v3 "Year-End Adjustment" — APAC expansion, tech boom (+10.8%)
-- **Version comparison** — auto-selects v1 vs v3 on load; dropdowns to choose any pair
-- **Impact by region** — visual bar chart of net revenue change per region
-- **Diff table** — row-level differences showing period, region name, service line name, both values, absolute diff, and % change
-- Region and service line IDs are resolved to human-readable names
+To activate one, add the KPI to the backend's `/api/kpis/summary` response,
+flip `placeholder: false` for it in `frontend/src/app/page.tsx`, and swap
+the stub page for `<KpiDrillDown kpi="..." />` (see existing live-data
+pages for the exact pattern).
 
-### 7. Data Quality (`/data-quality`)
-Automated data integrity monitoring.
-- **Quality scorecard** — overall score from automated checks (null, range, freshness, duplicate, schema)
-- **Trend chart** — quality score over time
-- **Anomaly table** — individual check failures with details
+### Genie chat (right-hand pane)
 
-### NLP Assistant (floating panel)
-Available on every page via the chat icon in the bottom-right corner.
-- Natural language questions about revenue data
-- Powered by Databricks Genie Spaces API (falls back to local analytics without credentials)
-- Returns SQL, tabular data, and narrative answers
+Natural-language KPI questions routed through Databricks Genie. The
+backend tries the local KPI engine first (deterministic SQL on DuckDB),
+and falls back to your configured Genie space for anything it can't
+answer schema-only. The four prompt chips on the dashboard (December
+dip, rate-vs-volume, biggest contributor, budget vs actuals YTD) are
+designed to land on the canonical answers documented in
+[`databricks/genie_examples.md`](databricks/genie_examples.md).
+
+If `DATABRICKS_HOST` / `DATABRICKS_TOKEN` / `GENIE_SPACE_ID` are unset,
+the chat still runs — it just stays in local-only mode.
+
+### Tellr "Export to Presentation"
+
+The dashboard's **Export to Presentation** button creates an executive
+deck via the Tellr `ai-slide-generator` Databricks App, polls until
+ready, and returns a PDF render of the deck (`html_document` →
+`xhtml2pdf` with a ReportLab fallback). Authentication is OAuth U2M;
+see [`QUICKSTART.md`](QUICKSTART.md#tellr-deck-export) for the token
+flow and the most common `401 Unauthorized` fix.
+
+### Personas
+
+Six demo personas (CFO, FD, Service Line Lead, FP&A Analyst, Data
+Steward, Exec Sponsor) selectable on `/login`. Each persona has a
+default region and a permission scope enforced by
+`backend/middleware/persona_middleware.py` and
+`backend/services/persona_scope.py`.
 
 ---
 
-## Filters
-
-Every data page includes two global filters in the header:
-
-| Filter | Options | Effect |
-|--------|---------|--------|
-| **Date Range** | FY 2025, FY 2024, H1/H2 2025, Q1–Q4 2025, All Time | Filters KPIs, charts, waterfall, and summaries to the selected period |
-| **Region** | All Regions, Americas, EMEA, APAC, UK | Filters all data components to the selected region |
-
----
-
-## Architecture
-
-```
-┌──────────────────────────────────────────────────────┐
-│               Next.js Frontend (:3000)                │
-│  Dashboard │ Live Feed │ Cash Flow │ Forecasting      │
-│  Scenarios │ Time Travel │ Data Quality │ NLP Chat    │
-└─────────────────────┬────────────────────────────────┘
-                      │ REST API + SSE
-┌─────────────────────▼────────────────────────────────┐
-│               FastAPI Backend (:8000)                  │
-│  Hybrid Forecast Engine (Prophet + XGBoost)           │
-│  Monte Carlo Scenario Engine                          │
-│  Stream Simulator (real-time event generation)        │
-│  Data Quality Engine                                  │
-│  Databricks Genie Integration                         │
-│  Recommended Actions Engine                           │
-└─────────────────────┬────────────────────────────────┘
-                      │
-┌─────────────────────▼────────────────────────────────┐
-│      DuckDB (local) / Delta Lake (Databricks)         │
-│  Synthetic data: 500 clients, 4 regions,              │
-│  6 service lines, 3 years of transactional data       │
-│  3 versioned snapshots for time-travel                │
-└──────────────────────────────────────────────────────┘
-```
-
-## Tech Stack
-
-| Layer | Technology |
-|-------|-----------|
-| Frontend | Next.js 14, React 18, TypeScript, Tailwind CSS, Recharts |
-| Backend | Python 3.11, FastAPI, Uvicorn |
-| Database | DuckDB (local analytical DB) |
-| ML / Forecasting | Prophet-style decomposition, Gradient Boosting (scikit-learn), Monte Carlo simulation |
-| NLP | Databricks Genie Spaces API |
-| Real-time | Server-Sent Events (SSE) |
-| Data Generation | Faker, NumPy, pandas |
-
-## Project Structure
+## Project layout
 
 ```
 revintel-poc/
+├── README.md                      # this file
+├── QUICKSTART.md                  # 5-min setup + Genie + Tellr wiring
+├── Makefile                       # make setup / make dev
+├── docker-compose.yml             # docker compose up
 ├── backend/
-│   ├── main.py                  # FastAPI app, lifespan, router registration
-│   ├── requirements.txt         # Python dependencies
-│   ├── .env                     # Databricks credentials (not committed)
+│   ├── main.py                    # FastAPI app, lifespan, middleware, routers
+│   ├── requirements.txt
+│   ├── .env.example               # copy to .env
 │   ├── routers/
-│   │   ├── dashboard.py         # KPIs, revenue trend, attribution
-│   │   ├── cashflow.py          # Waterfall, DSO, AR aging
-│   │   ├── forecasting.py       # Predict, accuracy, history, recommendations
-│   │   ├── scenarios.py         # Monte Carlo simulation
-│   │   ├── time_travel.py       # Versions, diff, point-in-time query
-│   │   ├── data_quality.py      # Scorecard, trend, anomalies
-│   │   ├── stream.py            # SSE events, status, recent
-│   │   └── nlp.py               # Genie chat, executive summary
+│   │   ├── kpis.py                # /api/kpis/summary, /api/kpis/{id}
+│   │   ├── data.py                # /api/data/* (catalog metadata for the chat)
+│   │   ├── nlp.py                 # /api/nlp/* (Genie chat)
+│   │   ├── tellr.py               # /api/tellr/* (deck create / status / pdf)
+│   │   └── dashboard.py           # legacy endpoints kept for back-compat
 │   ├── services/
-│   │   ├── forecast_engine.py   # Prophet + XGBoost hybrid model
-│   │   ├── scenario_engine.py   # Monte Carlo simulation engine
-│   │   ├── stream_simulator.py  # Real-time event generator
-│   │   └── genie_engine.py      # Databricks Genie API client
+│   │   ├── kpi_local_engine.py    # deterministic local KPI SQL
+│   │   ├── genie_engine.py        # Databricks Genie client (with local fallback)
+│   │   ├── tellr_mcp.py           # Tellr MCP client (Pattern A + Pattern B auth)
+│   │   └── persona_scope.py       # row-level region scoping per persona
+│   ├── middleware/
+│   │   └── persona_middleware.py  # injects persona state from cookie / header
 │   ├── synthetic/
-│   │   ├── generate.py          # Synthetic data generation (500 clients, revenue, pipeline, forecasts, versions)
-│   │   └── seed.py              # Database seeding
+│   │   └── generate.py            # generates the 30k-row demo dataset
 │   ├── db/
-│   │   └── connection.py        # DuckDB connection and query helper
-│   └── data/
-│       └── revintel.duckdb      # Generated database file (not committed)
+│   │   └── connection.py          # DuckDB connection + view DDL
+│   └── data/                      # DuckDB file (gitignored)
 ├── frontend/
 │   ├── package.json
-│   ├── src/
-│   │   ├── app/                 # Next.js pages (/, /live, /cashflow, /forecasting, /scenarios, /time-travel, /data-quality)
-│   │   ├── components/
-│   │   │   ├── layout/          # Sidebar, Header
-│   │   │   ├── dashboard/       # KPICardGrid, RevenueTrendChart, AttributionPieChart
-│   │   │   ├── cashflow/        # WaterfallChart, DSOMeter, ARAgingChart
-│   │   │   ├── forecasting/     # ForecastChart, ModelComparison, PredictionTester, RecommendedActions
-│   │   │   ├── scenarios/       # ScenarioBuilder, ScenarioResults
-│   │   │   ├── time-travel/     # VersionTimeline, DiffViewer
-│   │   │   ├── data-quality/    # DQScorecard, DQTrendChart, AnomalyTable
-│   │   │   ├── live/            # LiveFeedPanel
-│   │   │   ├── nlp/             # ChatPanel, ExecSummaryModal
-│   │   │   └── shared/          # MetricCard, ChartContainer, FilterDropdown
-│   │   └── lib/
-│   │       ├── constants.ts     # Regions, service lines, nav items, chart colors
-│   │       ├── formatters.ts    # Currency and percentage formatters
-│   │       └── useEventStream.ts # SSE React hook
-│   └── public/
-│       └── kpmg-logo.png        # KPMG logo
-├── Makefile                     # Build and run commands
-├── docker-compose.yml           # Docker setup
-├── .gitignore
-└── README.md
+│   ├── next.config.js             # /api/* proxy → BACKEND_UPSTREAM
+│   ├── .env.example               # copy to .env.local (optional)
+│   └── src/
+│       ├── app/                   # Next.js App Router pages
+│       │   ├── page.tsx           # dashboard (4 live KPIs + 4 placeholders)
+│       │   ├── chargeable-hours/  # … and the other live KPI drill-downs
+│       │   ├── sales-forecast/    # … and the placeholder pages
+│       │   └── login/             # persona picker
+│       ├── components/
+│       │   ├── kpi/               # KpiSummaryCard, KpiTrendChart, etc.
+│       │   ├── tellr/             # ExportToPresentationButton + DeckProgressModal
+│       │   ├── nlp/ChatPane.tsx   # Genie chat pane
+│       │   └── layout/            # AppShell, Sidebar, ExecHeader, ThemeToggle
+│       └── lib/
+│           ├── use-kpis.ts        # /api/kpis/* React hooks
+│           ├── personas.ts        # persona definitions + GENIE_ROOM_URL
+│           ├── apiFetch.ts        # fetch helper that forwards persona headers
+│           └── filter-state.tsx   # global region / capability / period filter
+└── databricks/
+    ├── genie_examples.md          # SQL + narratives to seed your Genie space
+    ├── seed_unity_catalog.py      # notebook-style script — creates revintel.poc.*
+    ├── upload_to_databricks.py    # one-shot uploader (uses SQL Statement API)
+    └── do_upload.py               # incremental uploader from a local pickle
 ```
 
-## Databricks Integration (Optional)
+---
 
-To enable the NLP assistant with Databricks Genie, create `backend/.env`:
+## Running it
 
-```env
-DATABRICKS_HOST=https://your-workspace.cloud.databricks.com
-DATABRICKS_TOKEN=your_personal_access_token
-GENIE_SPACE_ID=your_genie_space_id
+The fastest path is in [`QUICKSTART.md`](QUICKSTART.md). For reference:
+
+```bash
+make setup        # creates backend/.venv, installs Python + npm deps, seeds DuckDB
+make dev          # starts backend on :8000 and frontend on :3000 in parallel
 ```
 
-Without these credentials, the NLP chat falls back to a local analytics mode. All other features (dashboard, forecasting, scenarios, etc.) work fully offline with the local DuckDB database.
+App: <http://localhost:3000>. API docs: <http://localhost:8000/docs>.
 
-## Make Commands
+### Docker
 
-| Command | Description |
-|---------|-------------|
-| `make setup` | Install all dependencies and seed the database |
-| `make dev` | Start backend (:8000) and frontend (:3000) concurrently |
-| `make backend` | Start only the backend |
-| `make frontend` | Start only the frontend |
-| `make seed` | Regenerate synthetic data |
-| `make clean` | Remove database, node_modules, .next cache, and venv |
+```bash
+cp backend/.env.example backend/.env  # fill in your values first
+docker compose up --build
+```
 
-## Synthetic Data
+### Make targets
 
-The app auto-generates realistic data on first run:
+| Command | Purpose |
+|---------|---------|
+| `make setup` | venv + npm install + seed DuckDB |
+| `make dev` | run backend + frontend together |
+| `make backend` | backend only (`uvicorn main:app --reload --port 8000`) |
+| `make frontend` | frontend only (`next dev`) |
+| `make seed` | regenerate synthetic data |
+| `make clean` | nuke `.venv`, `node_modules`, `.next`, DuckDB file |
 
-- **500 clients** across 4 regions (Americas 35%, EMEA 30%, UK 20%, APAC 15%) and 4 tiers
-- **~30,000 monthly revenue records** spanning Jan 2023 – Dec 2025 with seasonal patterns per service line
-- **2,000 pipeline opportunities** across all stages
-- **1,728 forecast records** with actuals for model accuracy measurement
-- **8,685 data quality audit entries** over 18 months
-- **3 versioned revenue snapshots** with scenario-driven variation for time-travel demos
+---
+
+## Push synthetic data to Unity Catalog (optional)
+
+If you want Genie to query against real Delta tables instead of the local
+DuckDB file, mirror the synthetic dataset into Unity Catalog:
+
+```bash
+export DATABRICKS_HOST=https://your-workspace.cloud.databricks.com
+export DATABRICKS_TOKEN=dapi_...
+export WAREHOUSE_ID=your_sql_warehouse_id
+export UC_CATALOG=revintel        # optional — default revintel
+export UC_SCHEMA=poc              # optional — default poc
+
+python databricks/upload_to_databricks.py
+```
+
+The script generates the data locally, then drops + creates + batch-inserts
+all 8 tables (`dim_*`, `fact_*`, `dq_audit_log`) under `${UC_CATALOG}.${UC_SCHEMA}`.
+Point your Genie space at the same catalog/schema and add the questions in
+[`databricks/genie_examples.md`](databricks/genie_examples.md) so the
+dashboard prompt chips hit cached answers.
+
+---
+
+## API surface (backend)
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| GET | `/api/health` | liveness probe |
+| GET | `/api/kpis/summary` | headline values + sparklines for all KPIs |
+| GET | `/api/kpis/{id}` | drill-down (trend, capability mix, YTD-vs-budget) |
+| GET | `/api/data/...` | catalog / metadata helpers used by the chat |
+| POST | `/api/nlp/chat` | natural-language KPI question (local → Genie) |
+| GET | `/api/tellr/health` | Tellr config + auth pattern probe |
+| POST | `/api/tellr/create-executive-deck` | kicks off async deck creation |
+| GET | `/api/tellr/deck-status` | poll a Tellr deck (`pending` \| `ready` \| `failed`) |
+| GET | `/api/tellr/deck-pdf` | PDF render of a ready deck |
+
+---
 
 ## Troubleshooting
 
-| Issue | Fix |
-|-------|-----|
-| `python3.11: command not found` | Install Python 3.11 via Homebrew: `brew install python@3.11` |
-| `pip install` SSL errors | Add `--trusted-host pypi.org --trusted-host files.pythonhosted.org` |
-| Port 3000/8000 already in use | Kill existing processes: `lsof -ti:3000 \| xargs kill -9` |
-| Frontend shows 404 on all content | Backend is not running — start it with `make backend` |
-| "Bus error: 10" on seed | DuckDB file lock — stop the backend first, then re-seed |
-| Live feed not updating | SSE connects directly to `:8000` — ensure backend is running |
+| Symptom | Likely cause / fix |
+|---------|--------------------|
+| `python3.11: command not found` | `brew install python@3.11` |
+| Port 8000 / 3000 already in use | `lsof -ti:8000 \| xargs kill -9` (same for 3000) |
+| Frontend pages stuck loading, console shows `ECONNREFUSED 127.0.0.1:8000` | Backend not running — `make backend` |
+| `Bus error: 10` on seed | DuckDB file lock — stop the backend first, then re-seed |
+| Dashboard cards say "KPI unavailable" | Backend started before DuckDB seed completed — restart backend |
+| Tellr export → `401 Unauthorized` | OAuth U2M token expired — re-mint, paste into `.env`, restart backend. Detail in [`QUICKSTART.md`](QUICKSTART.md#tellr-deck-export). |
+| Tellr export → `503 PAT rejected` | You used a `dapi…` PAT; Apps require an OAuth U2M token. |
+| Genie chat answers in "local" mode only | One of `DATABRICKS_HOST` / `DATABRICKS_TOKEN` / `GENIE_SPACE_ID` is missing |
+
+---
+
+## Synthetic data
+
+The local DuckDB seed (`make seed`) populates roughly:
+
+- **500 clients** across 4 regions (Americas, EMEA, APAC, UK) and 4 tiers
+- **~30k monthly revenue rows** (Jan 2023 – Dec 2025) with realistic
+  seasonality and a deliberate **December chargeable-hours dip
+  (`*0.88`)** so the marquee Genie answer ("Why did chargeable hours
+  drop in December?") has a real signal to find
+- **2,000 pipeline opportunities** across all stages
+- **1,728 forecast records** with actuals for accuracy backtesting
+- **8,685 data-quality audit entries** over 18 months
+- **3 versioned revenue snapshots** for time-travel demos

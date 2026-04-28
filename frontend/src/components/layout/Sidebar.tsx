@@ -1,9 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useState } from "react";
 import { NAV_ITEMS } from "@/lib/constants";
+import { useAuth } from "@/lib/auth-context";
+import { PERSONAS, type Persona } from "@/lib/personas";
 
 const ICONS: Record<string, React.ReactNode> = {
   LayoutDashboard: (
@@ -11,45 +13,61 @@ const ICONS: Record<string, React.ReactNode> = {
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
     </svg>
   ),
-  DollarSign: (
-    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-    </svg>
-  ),
-  TrendingUp: (
-    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
-    </svg>
-  ),
-  GitBranch: (
-    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
-    </svg>
-  ),
   Clock: (
     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
     </svg>
   ),
-  ShieldCheck: (
+  PoundSterling: (
     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18 7c-3-2.5-9-2-9 3v4H7m11 7H7c1.5-2 1.5-4 1.5-7M7 12h7" />
     </svg>
   ),
-  Radio: (
+  CalendarDays: (
     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5.636 18.364a9 9 0 010-12.728m12.728 0a9 9 0 010 12.728M9.172 15.828a5 5 0 010-7.072m5.656 0a5 5 0 010 7.072M12 12h.01" />
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+    </svg>
+  ),
+  AlertCircle: (
+    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+    </svg>
+  ),
+  TrendingUp: (
+    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 17l6-6 4 4 8-8m0 0h-5m5 0v5" />
+    </svg>
+  ),
+  Percent: (
+    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 5L5 19m2-12a2 2 0 11-4 0 2 2 0 014 0zm14 12a2 2 0 11-4 0 2 2 0 014 0z" />
+    </svg>
+  ),
+  Briefcase: (
+    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 13.255A23.93 23.93 0 0112 15c-3.183 0-6.22-.62-9-1.745M16 6V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v2m4 6h.01M5 20h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+    </svg>
+  ),
+  Users: (
+    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a4 4 0 00-3-3.87M9 20H4v-2a4 4 0 013-3.87m6-5a4 4 0 11-8 0 4 4 0 018 0zm6 0a4 4 0 11-8 0 4 4 0 018 0z" />
     </svg>
   ),
 };
 
 export function Sidebar() {
   const pathname = usePathname();
+  const router = useRouter();
+  const { activePersona, setActivePersona, logout } = useAuth();
   const [isOpen, setIsOpen] = useState(false);
+  const [personaOpen, setPersonaOpen] = useState(false);
 
+  const p: Persona | null = activePersona;
+
+  // Sidebar uses fixed KPMG navy regardless of light/dark theme — locked spec.
+  // We use CSS vars so a future tweak only needs a globals.css change.
   return (
     <>
-      {/* Mobile overlay */}
       {isOpen && (
         <div
           className="fixed inset-0 bg-black/50 z-40 lg:hidden"
@@ -58,11 +76,14 @@ export function Sidebar() {
         />
       )}
 
-      {/* Mobile toggle button */}
       <button
         type="button"
         onClick={() => setIsOpen(!isOpen)}
-        className="fixed top-4 left-4 z-50 lg:hidden p-2 rounded-lg bg-[#1a1a1a] border border-[#2a2a2a] text-[#e5e5e5] hover:bg-[#222]"
+        className="fixed top-4 left-4 z-50 lg:hidden p-2 rounded-lg shadow-md"
+        style={{
+          background: "var(--sidebar-bg, #00338D)",
+          color: "var(--sidebar-text, #ffffff)",
+        }}
         aria-label="Toggle sidebar"
       >
         <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -74,23 +95,28 @@ export function Sidebar() {
         className={`
           fixed lg:static inset-y-0 left-0 z-40
           w-64 flex flex-col
-          bg-[#1a1a1a] border-r border-[#2a2a2a]
           transform transition-transform duration-200 ease-in-out
           ${isOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"}
         `}
+        style={{
+          background: "var(--sidebar-bg, #00338D)",
+          color: "var(--sidebar-text, #ffffff)",
+        }}
       >
-        {/* Logo */}
-        <div className="flex items-center gap-3 px-5 py-4 border-b border-[#2a2a2a]">
+        <div
+          className="flex items-center gap-3 px-5 py-4"
+          style={{ borderBottom: "1px solid var(--sidebar-border, rgba(255,255,255,0.12))" }}
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src="/kpmg-logo.png" alt="KPMG" className="h-7 w-auto" />
-          <div className="h-5 w-px bg-[#2a2a2a]" />
-          <span className="font-semibold text-sm text-[#e5e5e5]">Revenue Intel</span>
+          <div className="h-5 w-px" style={{ background: "var(--sidebar-border, rgba(255,255,255,0.12))" }} />
+          <span className="font-semibold text-sm">Revenue Intel</span>
         </div>
 
-        {/* Nav groups */}
         <nav className="flex-1 overflow-y-auto py-4 px-3">
           {NAV_ITEMS.map((group) => (
             <div key={group.group} className="mb-6">
-              <h3 className="px-3 mb-2 text-xs font-medium text-[#888888] uppercase tracking-wider">
+              <h3 className="px-3 mb-2 text-xs font-medium uppercase tracking-wider" style={{ color: "var(--sidebar-text-muted, rgba(255,255,255,0.6))" }}>
                 {group.group}
               </h3>
               <ul className="space-y-0.5">
@@ -101,19 +127,26 @@ export function Sidebar() {
                       <Link
                         href={item.href}
                         onClick={() => setIsOpen(false)}
-                        className={`
-                          flex items-center gap-3 px-3 py-2.5 rounded-lg
-                          transition-colors duration-150 relative
-                          ${isActive
-                            ? "bg-[#222]/80 text-[#81d4e2]"
-                            : "text-[#a3a3a3] hover:bg-[#222] hover:text-[#e5e5e5]"
+                        className="flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors duration-150 relative"
+                        style={{
+                          background: isActive ? "var(--sidebar-active, color-mix(in oklch, white 12%, #00338D))" : "transparent",
+                          color: "var(--sidebar-text, #ffffff)",
+                        }}
+                        onMouseEnter={(e) => {
+                          if (!isActive) {
+                            e.currentTarget.style.background = "var(--sidebar-hover, color-mix(in oklch, white 8%, #00338D))";
                           }
-                        `}
+                        }}
+                        onMouseLeave={(e) => {
+                          if (!isActive) {
+                            e.currentTarget.style.background = "transparent";
+                          }
+                        }}
                       >
                         {isActive && (
-                          <span className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-6 bg-[#81d4e2] rounded-r" />
+                          <span className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-6 rounded-r" style={{ background: "var(--sidebar-text, #ffffff)" }} />
                         )}
-                        <span className="flex-shrink-0 text-[#888888]">
+                        <span className="flex-shrink-0">
                           {ICONS[item.icon] ?? null}
                         </span>
                         <span className="font-medium">{item.label}</span>
@@ -126,19 +159,113 @@ export function Sidebar() {
           ))}
         </nav>
 
-        {/* User profile */}
-        <div className="p-4 border-t border-[#2a2a2a]">
-          <div className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-[#222] cursor-pointer transition-colors">
-            <div className="w-9 h-9 rounded-full bg-[#2a2a2a] flex items-center justify-center text-sm font-medium text-[#81d4e2]">
-              JD
+        <div
+          className="p-4 relative"
+          style={{ borderTop: "1px solid var(--sidebar-border, rgba(255,255,255,0.12))" }}
+        >
+          {p && (
+            <div className="text-[10px] uppercase tracking-wider px-3 mb-1" style={{ color: "var(--sidebar-text-muted, rgba(255,255,255,0.6))" }}>
+              Signed in as
             </div>
-            <div className="flex-1 min-w-0">
-              <p className="font-medium text-[#e5e5e5] truncate">John Doe</p>
-              <p className="text-xs text-[#888888] truncate">john.doe@firm.com</p>
-            </div>
-            <svg className="w-4 h-4 text-[#888888] flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-            </svg>
+          )}
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => setPersonaOpen((o) => !o)}
+              className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-left transition-colors"
+              style={{ color: "var(--sidebar-text, #ffffff)" }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = "var(--sidebar-hover, color-mix(in oklch, white 8%, #00338D))";
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = "transparent";
+              }}
+            >
+              {p ? (
+                <>
+                  <div
+                    className="w-9 h-9 rounded-full flex items-center justify-center text-sm font-medium shrink-0"
+                    style={{ backgroundColor: `${p.accent}33`, color: p.accent }}
+                  >
+                    {p.initials}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-medium truncate">{p.name}</p>
+                    <p className="text-xs truncate" title={p.title} style={{ color: "var(--sidebar-text-muted, rgba(255,255,255,0.6))" }}>
+                      {p.title}
+                    </p>
+                  </div>
+                </>
+              ) : null}
+              <svg
+                className={`w-4 h-4 flex-shrink-0 transition-transform ${personaOpen ? "rotate-180" : ""}`}
+                style={{ color: "var(--sidebar-text-muted, rgba(255,255,255,0.6))" }}
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+              </svg>
+            </button>
+
+            {personaOpen && p && (
+              <>
+                <div
+                  className="fixed inset-0 z-10"
+                  onClick={() => setPersonaOpen(false)}
+                  aria-hidden="true"
+                />
+                <div
+                  className="absolute bottom-full left-0 right-0 mb-1 z-20 max-h-64 overflow-y-auto rounded-lg shadow-lg py-1"
+                  style={{
+                    background: "var(--sidebar-bg, #00338D)",
+                    border: "1px solid var(--sidebar-border, rgba(255,255,255,0.12))",
+                  }}
+                >
+                  {PERSONAS.map((x) => (
+                    <button
+                      key={x.id}
+                      type="button"
+                      onClick={() => {
+                        if (x.id !== p.id) {
+                          setActivePersona(x.id);
+                          setPersonaOpen(false);
+                        }
+                      }}
+                      className="w-full text-left px-3 py-2.5 text-sm flex items-center gap-2 transition-colors"
+                      style={{
+                        background: x.id === p.id ? "var(--sidebar-active, color-mix(in oklch, white 12%, #00338D))" : "transparent",
+                        color: "var(--sidebar-text, #ffffff)",
+                      }}
+                    >
+                      <span
+                        className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-medium"
+                        style={{ backgroundColor: `${x.accent}33`, color: x.accent }}
+                      >
+                        {x.initials}
+                      </span>
+                      <span className="min-w-0">
+                        <span className="block font-medium truncate">{x.name}</span>
+                        <span className="block text-[10px] truncate" style={{ color: "var(--sidebar-text-muted, rgba(255,255,255,0.6))" }}>{x.title}</span>
+                      </span>
+                    </button>
+                  ))}
+                  <div className="my-1" style={{ borderTop: "1px solid var(--sidebar-border, rgba(255,255,255,0.12))" }} />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPersonaOpen(false);
+                      logout();
+                      router.push("/login");
+                    }}
+                    className="w-full text-left px-3 py-2.5 text-sm transition-colors"
+                    style={{ color: "var(--color-negative, #fca5a5)" }}
+                  >
+                    Sign out
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       </aside>

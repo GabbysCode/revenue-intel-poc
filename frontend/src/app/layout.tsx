@@ -1,11 +1,20 @@
 import type { Metadata } from "next";
+import { Inter } from "next/font/google";
 import "./globals.css";
-import { Sidebar } from "@/components/layout/Sidebar";
-import { ChatPanel } from "@/components/nlp/ChatPanel";
+import { AppShell } from "@/components/layout/AppShell";
+import { AuthProvider } from "@/lib/auth-context";
+
+const inter = Inter({
+  subsets: ["latin"],
+  variable: "--font-inter",
+  display: "swap",
+  weight: ["400", "500", "600", "700"],
+});
 
 export const metadata: Metadata = {
-  title: "KPMG Revenue Intel - AI-Enabled Revenue Intelligence Platform",
-  description: "AI-enabled revenue intelligence platform for unified forecasting, scenario planning and natural language analytics",
+  title: "KPMG Revenue Intel — Executive KPI dashboard",
+  description:
+    "Five-tab executive dashboard for chargeable hours, rate per hour, gross fee days, and unbilled days, with a Genie copilot and one-click deck export via Tellr.",
 };
 
 export default function RootLayout({
@@ -14,15 +23,11 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
-      <body className="min-h-screen bg-[#0f0f0f] text-[#e5e5e5] antialiased">
-        <div className="flex min-h-screen w-full">
-          <Sidebar />
-          <main className="flex-1 flex flex-col min-w-0 pt-14 pl-14 lg:pt-0 lg:pl-0">
-            {children}
-          </main>
-        </div>
-        <ChatPanel />
+    <html lang="en" className={inter.variable} data-theme="light">
+      <body className="min-h-screen antialiased">
+        <AuthProvider>
+          <AppShell>{children}</AppShell>
+        </AuthProvider>
       </body>
     </html>
   );
