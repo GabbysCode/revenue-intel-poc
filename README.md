@@ -201,7 +201,28 @@ docker compose up --build
 | `make frontend` | frontend only (`next dev`) |
 | `make seed` | regenerate synthetic data |
 | `make wheel` | build `backend/dist/revintel_backend-<ver>-py3-none-any.whl` |
+| `make test` | install backend dev extras + run pytest (`backend/tests/`) |
 | `make clean` | nuke `.venv`, `node_modules`, `.next`, `dist/`, DuckDB file |
+
+### Tests
+
+The backend test suite (`backend/tests/`) focuses on the Tellr auth plumbing — the surface that's caused most production 401s. To run it:
+
+```bash
+make test
+```
+
+That installs the dev extras (`pytest`, `pytest-asyncio`, `respx`) into `backend/.venv` and runs the suite. Coverage:
+
+| File | What it verifies |
+|---|---|
+| `test_tellr_pattern_detection.py` | Pattern A → C → B precedence; partial config falls back safely. |
+| `test_tellr_auth_headers.py` | Pattern A sends NO `Authorization` and NO `x-forwarded-email` outbound (regression guard); B and C send `Bearer`. |
+| `test_tellr_sp_token_cache.py` | OIDC mint, freshness window, `invalidate()` forces re-mint, OIDC errors surface as `RuntimeError`. |
+| `test_tellr_401_retry.py` | One-shot 401 retry on Pattern C only; retry uses fresh token and preserves caller-supplied headers. |
+| `test_tellr_router_401.py` | `/api/tellr/health` reports the right pattern; `_ensure_configured` 503 messages are actionable. |
+
+When chasing a deployed-app 401, the runtime diagnostic at `backend/scripts/diagnose_tellr.py` complements the test suite — see [`DEPLOY.md` § Diagnosing 401s](DEPLOY.md#5a-diagnosing-401s).
 
 ---
 
@@ -275,7 +296,7 @@ dashboard prompt chips hit cached answers.
 | `Bus error: 10` on seed | DuckDB file lock — stop the backend first, then re-seed |
 | Dashboard cards say "KPI unavailable" | Backend started before DuckDB seed completed — restart backend |
 | Tellr export → `401 Unauthorized` (local dev) | OAuth U2M token expired — re-mint, paste into `.env`, restart backend. Detail in [`QUICKSTART.md`](QUICKSTART.md#tellr-deck-export). |
-| Tellr export → `401 Unauthorized` (deployed app) | If on Pattern C, the SP secret was rotated; update the Apps secret and re-deploy. The in-process token cache will mint fresh on next call. |
+| Tellr export → `401 Unauthorized` (deployed app) | Run `python backend/scripts/diagnose_tellr.py health --backend <url>` to see which pattern fired and which auth signal is missing. Full checklist in [`DEPLOY.md` § Diagnosing 401s](DEPLOY.md#5a-diagnosing-401s). |
 | Tellr export → `503 PAT rejected` | You used a `dapi…` PAT; Apps require an OAuth U2M token (Pattern B), Pattern A, or Pattern C. |
 | `/api/tellr/health` returns `pattern: "B"` in production | The Apps proxy didn't inject `x-forwarded-email` (so A is unavailable) and SP creds aren't set (so C is unavailable). Wire up Pattern A or C — Pattern B is local-dev-only. |
 | Genie chat answers in "local" mode only | One of `DATABRICKS_HOST` / `DATABRICKS_TOKEN` / `GENIE_SPACE_ID` is missing |

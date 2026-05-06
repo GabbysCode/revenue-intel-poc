@@ -3,7 +3,7 @@ VENV := backend/.venv
 VENV_BIN := $(VENV)/bin
 
 .PHONY: setup setup-backend setup-frontend seed dev backend frontend wheel \
-        docker-up docker-down clean
+        test test-backend docker-up docker-down clean
 
 setup: setup-backend setup-frontend seed
 
@@ -51,6 +51,20 @@ wheel:
 	@cp backend/dist/revintel_backend-*.whl releases/
 	@echo "Built and staged:"
 	@ls -la backend/dist/ releases/
+
+# Run the backend test suite — pytest + asyncio + respx (httpx mocking).
+# Installs the dev extras into the existing venv before running, so a fresh
+# clone only needs `make setup` once before `make test` works.
+test: test-backend
+
+test-backend:
+	@if [ ! -x "$(VENV_BIN)/python" ]; then \
+		echo "ERROR: backend venv not found. Run 'make setup-backend' first."; exit 1; \
+	fi
+	@echo "Installing dev extras (pytest, pytest-asyncio, respx)..."
+	@$(VENV_BIN)/pip install --quiet -e 'backend[dev]'
+	@echo "Running backend test suite..."
+	@cd backend && $(abspath $(VENV_BIN))/pytest -v
 
 docker-up:
 	docker-compose up --build

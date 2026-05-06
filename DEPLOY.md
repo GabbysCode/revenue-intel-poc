@@ -169,6 +169,43 @@ If `/api/tellr/health` reports the wrong pattern, check that `x-forwarded-email`
 
 ---
 
+## 5a. Diagnosing 401s
+
+When deck export 401s in production, work through this checklist instead of guessing:
+
+1. **Hit `/api/tellr/health` first** to see which pattern the backend detected and which auth signals it has. The four flags (`base_url_set`, `forwarded_email_present`, `sp_cache_present`, `bearer_token_present`) tell you *exactly* which env var or header is missing.
+2. **Run the diagnostic script** (`backend/scripts/diagnose_tellr.py`) — it reproduces the exact upstream call the backend would make and prints the outbound headers and raw response. It depends only on `httpx` (already a runtime dep), so you can run it from inside the deployed app's terminal.
+
+   ```bash
+   # Hit health on the deployed backend
+   python backend/scripts/diagnose_tellr.py health \
+       --backend https://revintel-backend.<your-workspace>.databricksapps.com
+
+   # Probe Tellr directly with the current env vars (auto-detects pattern)
+   python backend/scripts/diagnose_tellr.py probe
+
+   # Force a Pattern A probe (simulate Apps proxy)
+   python backend/scripts/diagnose_tellr.py probe --as-pattern A --forwarded-email me@co.com
+
+   # Verify SP creds can mint a token (Pattern C only)
+   python backend/scripts/diagnose_tellr.py mint-sp
+   ```
+
+3. **Run the test suite** (`make test`) before deploying. The `backend/tests/` suite covers every 401 path: pattern detection precedence, header shape per pattern, SP token cache lifecycle (mint, freshness window, invalidation), the one-shot 401-retry contract, and the `_ensure_configured` 503 messages. If a future code change accidentally regresses the auth plumbing, the suite catches it before the deploy goes out.
+
+The most common production 401 causes:
+
+| Symptom (from `diagnose_tellr.py probe`) | Likely cause | Fix |
+|---|---|---|
+| Pattern A 401 with no `Authorization` header sent | RevIntel is NOT in the same workspace as Tellr (proxy didn't inject identity) | Switch to Pattern C, OR redeploy into Tellr's workspace |
+| Pattern A 401 with `Authorization` set | Caller-supplied identity headers leaking through (regression) | Check `TellrAuthContext.headers()` Pattern A branch; the test suite guards this |
+| Pattern B 401 with bearer starting `dapi…` | PAT used instead of OAuth U2M token | Re-mint with `databricks auth token -p <profile>` |
+| Pattern B 401 with valid-looking JWT | Token expired (~1h lifetime) | Re-mint, or move to Pattern A/C for production |
+| Pattern C 401, `mint-sp` succeeds | SP minted a token but Tellr rejects it | The SP isn't a Tellr workspace member, or doesn't have *Can use* on the Tellr app |
+| Pattern C 401, `mint-sp` also fails | OIDC config bad | Check `TELLR_WORKSPACE_HOST` matches the SP's workspace; verify client id + secret |
+
+---
+
 ## 6. Token refresh & lifecycle
 
 - **Pattern A** — no tokens involved; the Apps proxy handles identity each request.
