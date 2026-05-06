@@ -297,6 +297,7 @@ dashboard prompt chips hit cached answers.
 | Dashboard cards say "KPI unavailable" | Backend started before DuckDB seed completed — restart backend |
 | Tellr export → `401 Unauthorized` (local dev) | OAuth U2M token expired — re-mint, paste into `.env`, restart backend. Detail in [`QUICKSTART.md`](QUICKSTART.md#tellr-deck-export). |
 | Tellr export → `401 Unauthorized` (deployed app) | Run `python backend/scripts/diagnose_tellr.py health --backend <url>` to see which pattern fired and which auth signal is missing. Full checklist in [`DEPLOY.md` § Diagnosing 401s](DEPLOY.md#5a-diagnosing-401s). |
+| KPI / data → `401 Unauthorized` (deployed app — "KPI unavailable" cards) | The frontend → backend hop isn't authenticated. Set `REVINTEL_SP_CLIENT_ID/SECRET/WORKSPACE_HOST` on the frontend app and grant the SP *Can use* on the backend app. Full diagnosis flow (logs + `/api/auth/whoami`) in [`DEPLOY.md` § Diagnosing KPI/data 401s](DEPLOY.md#5b-diagnosing-kpi--data-401s). |
 | Tellr export → `503 PAT rejected` | You used a `dapi…` PAT; Apps require an OAuth U2M token (Pattern B), Pattern A, or Pattern C. |
 | `/api/tellr/health` returns `pattern: "B"` in production | The Apps proxy didn't inject `x-forwarded-email` (so A is unavailable) and SP creds aren't set (so C is unavailable). Wire up Pattern A or C — Pattern B is local-dev-only. |
 | Genie chat answers in "local" mode only | One of `DATABRICKS_HOST` / `DATABRICKS_TOKEN` / `GENIE_SPACE_ID` is missing |

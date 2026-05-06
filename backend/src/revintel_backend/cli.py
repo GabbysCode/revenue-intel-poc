@@ -12,6 +12,7 @@ either with --host / --port for local tinkering.
 from __future__ import annotations
 
 import argparse
+import logging
 import os
 
 import uvicorn
@@ -53,6 +54,21 @@ def main() -> None:
         help="uvicorn log level (default: info, or $LOG_LEVEL).",
     )
     args = parser.parse_args()
+
+    # Configure root logging so our package's loggers (revintel.access, the
+    # tellr_mcp module logger, etc.) surface in databricks apps logs at
+    # INFO by default. Without this, only uvicorn's own loggers emit and
+    # our access-log middleware lines vanish.
+    log_level_value = getattr(logging, args.log_level.upper(), logging.INFO)
+    logging.basicConfig(
+        level=log_level_value,
+        format="%(asctime)s %(levelname)s %(name)s %(message)s",
+        datefmt="%Y-%m-%dT%H:%M:%S",
+    )
+    # Make sure our two most-watched loggers are at the configured level
+    # even if some upstream import beat us to basicConfig.
+    for name in ("revintel.access", "revintel_backend.services.tellr_mcp"):
+        logging.getLogger(name).setLevel(log_level_value)
 
     uvicorn.run(
         "revintel_backend.main:app",

@@ -11,12 +11,33 @@ command:
 
 env:
   # ---------------------------------------------------------------------------
-  # REQUIRED — the backend Databricks App's HTTPS URL. Without this Next's
-  # `/api/*` rewrite proxies to localhost (default in next.config.js) and
-  # every API call returns 502.
+  # REQUIRED — the backend Databricks App's HTTPS URL. Without this the
+  # frontend's /api/[...path]/route.ts proxies to localhost and every API
+  # call returns 502.
   # Format: https://revintel-backend-<workspace-id>.<region>.databricksapps.com
   # ---------------------------------------------------------------------------
   - name: BACKEND_UPSTREAM
+    value: ""
+
+  # ---------------------------------------------------------------------------
+  # REQUIRED for the deployed two-app topology — service-principal OAuth M2M
+  # creds the frontend uses to authenticate to the backend's Apps proxy.
+  # Without these the backend returns 401 on every /api/* call.
+  #
+  # The SP needs "Can use" permission on the backend Databricks App. You can
+  # reuse the Tellr Pattern C SP if you grant it that permission too — the
+  # frontend falls back to TELLR_SP_* and TELLR_WORKSPACE_HOST when the
+  # REVINTEL_SP_* vars are unset.
+  #
+  # Use Apps secrets, not literal values:
+  #   databricks apps secrets put-secret revintel-frontend revintel/sp_secret \
+  #       --string-value '<the-actual-secret>' -p $PROFILE
+  # ---------------------------------------------------------------------------
+  - name: REVINTEL_SP_CLIENT_ID
+    value: ""
+  - name: REVINTEL_SP_CLIENT_SECRET
+    valueFrom: "revintel/sp_secret"
+  - name: REVINTEL_WORKSPACE_HOST
     value: ""
 
   # ---------------------------------------------------------------------------

@@ -24,6 +24,14 @@ Both options use the same RevIntel code — `detect_pattern()` in `backend/servi
 
 > **Pattern B** (a static `DATABRICKS_OAUTH_TOKEN` minted with `databricks auth token`) is local-dev-only. It works in production but tokens expire in ~1 hour and there's no auto-refresh, so you'd be back here re-deploying every hour. Don't use B in production.
 
+### Frontend → backend hop also needs a service principal
+
+RevIntel ships as TWO Databricks Apps. The browser is logged in to the *frontend* app via its Apps proxy, but each app has **its own** Apps proxy demanding auth. When the frontend's Node process proxies `/api/*` to the backend, that's a server-to-server call with no user session — backend's proxy returns **401** unless we send a Bearer token.
+
+We solve this with a service principal that has *Can use* permission on the backend app (see § 2 step 5). The frontend's `src/app/api/[...path]/route.ts` mints an OAuth M2M token from `<workspace>/oidc/v1/token` and injects it as `Authorization: Bearer <sp>` on every backend hop. Tokens are cached in-process (60s early refresh) and there's a one-shot 401 retry that handles edge token rotation.
+
+**You can reuse the Tellr Pattern C SP for this** if you grant it backend-app access too — the frontend env vars `REVINTEL_SP_CLIENT_ID/SECRET/WORKSPACE_HOST` fall back to `TELLR_SP_*` when unset.
+
 ---
 
 ## 2. One-time prerequisites
@@ -36,6 +44,13 @@ Both options use the same RevIntel code — `detect_pattern()` in `backend/servi
    ```
    This profile is what you'll pass to `deploy.sh`.
 4. **App-level access on the Tellr app** for whichever identity is going to call it (the human user for Pattern A; the SP for Pattern C). A workspace admin in the Tellr workspace grants this from the Tellr app's *Permissions* tab.
+5. **App-level access on the RevIntel backend app** for the SP that the frontend will use to authenticate the proxy hop. After the backend app is created (step 3), grant the SP *Can use*:
+   ```bash
+   databricks apps update revintel-backend \
+     --json '{"resources":[{"name":"sp","servicePrincipal":{"name":"<sp-display-name>","permission":"CAN_USE"}}]}' \
+     -p $PROFILE
+   ```
+   If you reuse the Tellr Pattern C SP (recommended), this is the same SP you created below — just grant it on a second app.
 
 ### Pattern C only — create the service principal
 
@@ -143,6 +158,29 @@ Then re-deploy so the new env block takes effect:
 databricks apps deploy revintel-backend --source-code-path /Workspace/Users/$USER/revintel/backend -p $PROFILE
 ```
 
+### Frontend env vars — REQUIRED for the SP proxy hop
+
+Without these the frontend will hit the backend with no Bearer and every `/api/*` call returns **401**. Reuse the Tellr SP if it's already granted *Can use* on the backend app (see § 2 step 5):
+
+```bash
+databricks apps update revintel-frontend --json @- -p $PROFILE <<EOF
+{
+  "name": "revintel-frontend",
+  "env": [
+    { "name": "BACKEND_UPSTREAM",          "value": "$BACKEND_URL" },
+    { "name": "REVINTEL_SP_CLIENT_ID",     "value": "<sp-client-id>" },
+    { "name": "REVINTEL_SP_CLIENT_SECRET", "valueFrom": "revintel/sp_secret" },
+    { "name": "REVINTEL_WORKSPACE_HOST",   "value": "https://<your-workspace>.cloud.databricks.com" }
+  ]
+}
+EOF
+
+databricks apps secrets put-secret revintel-frontend revintel/sp_secret --string-value '<the-actual-secret>' -p $PROFILE
+databricks apps deploy revintel-frontend --source-code-path /Workspace/Users/$USER/revintel/frontend -p $PROFILE
+```
+
+> The backend will see the SP's identity in `x-forwarded-email`, not the human user's. Persona scope still works (it uses our custom `X-RevIntel-Persona` header), but Tellr decks will be attributed to the SP — same trade-off as Pattern C.
+
 ---
 
 ## 5. Smoke tests
@@ -170,6 +208,11 @@ If `/api/tellr/health` reports the wrong pattern, check that `x-forwarded-email`
 ---
 
 ## 5a. Diagnosing 401s
+
+There are two distinct 401 surfaces:
+
+  1. **`/api/kpis/*` and other backend endpoints** — almost always the frontend → backend hop missing the SP Bearer token. See § 5b below.
+  2. **Tellr deck export** — Tellr's MCP rejecting our auth pattern. Continue with this section.
 
 When deck export 401s in production, work through this checklist instead of guessing:
 
@@ -203,6 +246,62 @@ The most common production 401 causes:
 | Pattern B 401 with valid-looking JWT | Token expired (~1h lifetime) | Re-mint, or move to Pattern A/C for production |
 | Pattern C 401, `mint-sp` succeeds | SP minted a token but Tellr rejects it | The SP isn't a Tellr workspace member, or doesn't have *Can use* on the Tellr app |
 | Pattern C 401, `mint-sp` also fails | OIDC config bad | Check `TELLR_WORKSPACE_HOST` matches the SP's workspace; verify client id + secret |
+
+---
+
+## 5b. Diagnosing KPI / data 401s
+
+When the dashboard cards say "KPI unavailable" or `/api/kpis/*` returns 401 in the browser, the request is dying on the **frontend → backend hop**. Each Databricks App has its own auth proxy and the backend's proxy rejects the call before it reaches our Python.
+
+**The two-line diagnosis**:
+
+1. **Check the frontend logs** for the proxy hop status:
+
+   ```bash
+   databricks apps logs revintel-frontend -p $PROFILE | grep '\[revintel-frontend\] proxy_'
+   ```
+
+   What you should see (good):
+   ```
+   [revintel-frontend] proxy_in  method=GET path=/api/kpis/summary auth=sp persona=executive upstream=https://revintel-backend...
+   [revintel-frontend] proxy_out method=GET path=/api/kpis/summary status=200 auth=sp elapsed_ms=84.2
+   ```
+
+   What you'll see when the SP env vars are missing (bad):
+   ```
+   [revintel-frontend] proxy_in  method=GET path=/api/kpis/summary auth=none ...
+   [revintel-frontend] proxy_out method=GET path=/api/kpis/summary status=401 auth=none ...
+   ```
+
+   `auth=none` means the frontend never injected a Bearer — `REVINTEL_SP_CLIENT_ID/SECRET` aren't set or the SP isn't configured. Set them per § 4 above.
+
+2. **Check the backend access log** to confirm whether the request even reached Python:
+
+   ```bash
+   databricks apps logs revintel-backend -p $PROFILE | grep 'revintel.access'
+   ```
+
+   - **No matching log line**: the backend's Apps proxy 401'd before our code ran. The frontend isn't sending a valid SP Bearer (most common).
+   - **`request_out ... status=401 auth=no scheme=(none)`**: same root cause, but the backend received the request directly (e.g., curl from a developer machine).
+   - **`request_out ... status=401 auth=yes scheme=Bearer`**: the SP token reached us but the Apps proxy still rejected it. The SP doesn't have *Can use* on the backend app.
+
+**Live debugging with `whoami`**: the backend exposes `/api/auth/whoami` which echoes every auth signal it received (with tokens reduced to an 8-char prefix). Hit it from the deployed frontend's browser console to see exactly what the backend gets:
+
+```js
+fetch('/api/auth/whoami').then(r => r.json()).then(console.log)
+```
+
+`auth_header.present: false` confirms the proxy hop has no Bearer — fix the SP env vars on the frontend app.
+
+The most common KPI/data 401 causes:
+
+| Symptom | Likely cause | Fix |
+|---|---|---|
+| `proxy_out auth=none status=401` in frontend logs | `REVINTEL_SP_CLIENT_ID/SECRET/WORKSPACE_HOST` not set on the frontend app (and no `TELLR_SP_*` fallback either) | Set them per § 4 *Frontend env vars*; redeploy the frontend |
+| `sp_mint_failed ... HTTP 401 invalid_client` | Wrong SP client_id or secret rotated | Mint a new SP secret, update `revintel/sp_secret`, redeploy |
+| `proxy_out auth=sp status=401` in frontend logs, NO `revintel.access` lines in backend logs | SP authenticates to the workspace but lacks *Can use* on the backend app | `databricks apps update revintel-backend --json '{"resources":[{"name":"sp","servicePrincipal":{"name":"<sp>","permission":"CAN_USE"}}]}'` |
+| `proxy_out auth=sp status=401` AND backend `request_out ... status=401 auth=yes` | The SP reached our code but FastAPI itself returned 401 — would only happen if you've added auth middleware in front of routers | Check recent middleware additions; baseline RevIntel doesn't 401 anywhere in Python |
+| `proxy_error ... Backend unreachable` | `BACKEND_UPSTREAM` env var is wrong / backend app stopped | `databricks apps get revintel-backend -p $PROFILE -o json \| jq -r '.url'` and update the frontend env |
 
 ---
 

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "revintel-backend"
-version = "0.1.0"
+version = "0.2.0"
 description = "RevIntel — Revenue Intelligence POC backend (FastAPI + DuckDB + Databricks Genie + Tellr MCP)"
 readme = "README.md"
 requires-python = ">=3.11"
