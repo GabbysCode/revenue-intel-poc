@@ -17,18 +17,17 @@ export const SERVICE_LINES = [
 export const CHART_COLORS = ["#4ade80", "#60a5fa", "#a78bfa", "#fb923c", "#f87171", "#38bdf8", "#facc15"];
 
 export const NAV_ITEMS = [
-  {
-    group: "Executive KPIs",
-    items: [
-      { label: "Overview", href: "/", icon: "LayoutDashboard" },
-      { label: "Chargeable Hours", href: "/chargeable-hours", icon: "Clock" },
-      { label: "Rate Per Hour", href: "/rate-per-hour", icon: "PoundSterling" },
-      { label: "Gross Fee Days", href: "/gross-fee-days", icon: "CalendarDays" },
-      { label: "Unbilled Days", href: "/unbilled-days", icon: "AlertCircle" },
-      { label: "Sales Forecast", href: "/sales-forecast", icon: "TrendingUp" },
-      { label: "Chargeability", href: "/chargeability", icon: "Percent" },
-      { label: "Delivery Financials", href: "/delivery-financials", icon: "Briefcase" },
-      { label: "Staff Attrition", href: "/staff-attrition", icon: "Users" },
-    ],
-  },
+  { group: "Revenue Intelligence", items: [
+    { label: "Dashboard", href: "/", icon: "LayoutDashboard" },
+    { label: "Live Feed", href: "/live", icon: "Radio" },
+    { label: "Cash Flow", href: "/cashflow", icon: "DollarSign" },
+  ]},
+  { group: "AI & Analytics", items: [
+    { label: "Forecasting", href: "/forecasting", icon: "TrendingUp" },
+    { label: "Scenarios", href: "/scenarios", icon: "GitBranch" },
+  ]},
+  { group: "Data Platform", items: [
+    { label: "Time Travel", href: "/time-travel", icon: "Clock" },
+    { label: "Data Quality", href: "/data-quality", icon: "ShieldCheck" },
+  ]},
 ];

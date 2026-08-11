@@ -14,10 +14,6 @@ services:
       - DATABRICKS_HOST=${DATABRICKS_HOST:-}
       - DATABRICKS_TOKEN=${DATABRICKS_TOKEN:-}
       - GENIE_SPACE_ID=${GENIE_SPACE_ID:-}
-      # Tellr MCP (Pattern B: OAuth U2M via databricks auth token, not a PAT) — see docs in tellr_mcp.py
-      - TELLR_BASE_URL=${TELLR_BASE_URL:-}
-      - DATABRICKS_OAUTH_TOKEN=${DATABRICKS_OAUTH_TOKEN:-}
-      - TELLR_OAUTH_TOKEN=${TELLR_OAUTH_TOKEN:-}
     command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
 
   frontend:
@@ -29,8 +25,7 @@ services:
     volumes:
       - ./frontend/src:/app/src
     environment:
-      - NEXT_PUBLIC_API_URL=
-      - BACKEND_UPSTREAM=http://backend:8000
+      - NEXT_PUBLIC_API_URL=http://localhost:8000
     depends_on:
       - backend
 

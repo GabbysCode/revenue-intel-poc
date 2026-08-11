@@ -2,69 +2,30 @@ PYTHON := python3.11
 VENV := backend/.venv
 VENV_BIN := $(VENV)/bin
 
-.PHONY: setup setup-backend setup-frontend seed dev backend frontend wheel \
-        test test-backend docker-up docker-down clean
+.PHONY: setup dev backend frontend seed clean
 
 setup: setup-backend setup-frontend seed
 
-# Install the backend in editable mode against pyproject.toml so local edits
-# show up without a rebuild — and so `make backend` runs the same console
-# entry point that ships in the wheel.
 setup-backend:
 	$(PYTHON) -m venv $(VENV)
-	$(VENV_BIN)/pip install --upgrade pip build
-	$(VENV_BIN)/pip install -e backend
+	$(VENV_BIN)/pip install --upgrade pip
+	$(VENV_BIN)/pip install -r backend/requirements.txt
 
 setup-frontend:
 	cd frontend && npm install
 
 seed:
-	cd backend && $(abspath $(VENV_BIN))/python -c "from revintel_backend.db.connection import init_db; init_db()"
+	cd backend && $(abspath $(VENV_BIN))/python -c "from db.connection import init_db; init_db()"
 
 dev:
 	@echo "Starting backend on :8000 and frontend on :3000..."
 	@make backend & make frontend & wait
 
-# Use the console_scripts entry point so dev mirrors prod exactly.
 backend:
-	cd backend && $(abspath $(VENV_BIN))/revintel-backend --reload --port 8000
+	cd backend && $(abspath $(VENV_BIN))/uvicorn main:app --reload --port 8000
 
 frontend:
 	cd frontend && npx next dev
-
-# Build a distributable wheel for Databricks Apps deploys (and any other
-# pip install target). Drops into backend/dist/ AND copies into releases/
-# so the tracked artifact stays in sync — that's what locked-down deployers
-# without a Python toolchain pull straight from git.
-wheel:
-	@echo "Building revintel-backend wheel..."
-	@rm -rf backend/dist backend/build backend/src/*.egg-info
-	@if $(VENV_BIN)/pip install --upgrade build >/dev/null 2>&1; then \
-		echo "  using PEP 517 build (network-fetched)"; \
-		cd backend && $(abspath $(VENV_BIN))/python -m build --wheel --outdir dist; \
-	else \
-		echo "  PyPI unreachable for 'pip install build' — falling back to in-venv setuptools"; \
-		cd backend && $(abspath $(VENV_BIN))/pip wheel . --no-deps --no-build-isolation -w dist; \
-	fi
-	@mkdir -p releases
-	@rm -f releases/revintel_backend-*.whl
-	@cp backend/dist/revintel_backend-*.whl releases/
-	@echo "Built and staged:"
-	@ls -la backend/dist/ releases/
-
-# Run the backend test suite — pytest + asyncio + respx (httpx mocking).
-# Installs the dev extras into the existing venv before running, so a fresh
-# clone only needs `make setup` once before `make test` works.
-test: test-backend
-
-test-backend:
-	@if [ ! -x "$(VENV_BIN)/python" ]; then \
-		echo "ERROR: backend venv not found. Run 'make setup-backend' first."; exit 1; \
-	fi
-	@echo "Installing dev extras (pytest, pytest-asyncio, respx)..."
-	@$(VENV_BIN)/pip install --quiet -e 'backend[dev]'
-	@echo "Running backend test suite..."
-	@cd backend && $(abspath $(VENV_BIN))/pytest -v
 
 docker-up:
 	docker-compose up --build
@@ -74,8 +35,6 @@ docker-down:
 
 clean:
 	rm -rf backend/data/revintel.duckdb
-	rm -rf backend/dist backend/build backend/src/*.egg-info
 	rm -rf frontend/.next
 	rm -rf frontend/node_modules
-	rm -rf frontend/tsconfig.tsbuildinfo
 	rm -rf $(VENV)

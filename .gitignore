@@ -6,20 +6,16 @@ __pycache__/
 backend/.venv/
 backend/data/*.duckdb
 backend/data/*.wal
-backend/data/*.pkl
 
 # Node
 node_modules/
 frontend/node_modules/
 frontend/.next/
 frontend/out/
-frontend/tsconfig.tsbuildinfo
 
 # Environment
 .env
-.env.local
 backend/.env
-frontend/.env.local
 
 # IDE
 .idea/
@@ -31,6 +27,3 @@ frontend/.env.local
 # Build
 dist/
 build/
-
-# Local data dumps used by databricks/do_upload.py
-/tmp/revintel_data.pkl
