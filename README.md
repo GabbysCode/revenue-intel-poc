@@ -17,10 +17,13 @@ Built on a Databricks Lakehouse architecture with a hybrid forecasting engine, s
 
 ## Quick Start
 
+New here? [`QUICKSTART.md`](QUICKSTART.md) walks through setup, verification,
+and troubleshooting in more detail. The short version:
+
 ```bash
 # 1. Clone the repo
-git clone https://github.com/your-org/revintel-poc.git
-cd revintel-poc
+git clone -b revintel-classic https://github.com/GabbysCode/revenue-intel-poc.git
+cd revenue-intel-poc
 
 # 2. Install all dependencies and seed the database
 make setup

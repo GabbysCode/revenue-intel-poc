@@ -16,6 +16,9 @@ frontend/out/
 # Environment
 .env
 backend/.env
+# Per-workspace Databricks Apps deploy values (belongs to the deploy tooling
+# branch, not this build)
+databricks/deploy.env
 
 # IDE
 .idea/
